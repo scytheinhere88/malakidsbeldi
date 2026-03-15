@@ -334,7 +334,7 @@ class LicenseGenerator
 
     private function isGumroadLicenseFormat($licenseKey)
     {
-        return preg_match('/^[A-F0-9]{8}-[A-F0-9]{8}-[A-F0-9]{8}-[A-F0-9]{8}$/i', $licenseKey);
+        return preg_match('/^[A-F0-9]{8}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{12}$/i', $licenseKey);
     }
 
     private function activateGumroadLicense($licenseKey, $userId, $email)
@@ -343,6 +343,26 @@ class LicenseGenerator
         $checkExisting->execute([$licenseKey, $userId]);
         if ($checkExisting->fetch()) {
             return ['success' => false, 'error' => 'This license key is already in use by another account'];
+        }
+
+        // If this Gumroad key was already processed by webhook, return the existing system license key
+        $existingSystemKey = $this->conn->prepare("SELECT license_key FROM licenses WHERE gumroad_license=? AND status='active' LIMIT 1");
+        $existingSystemKey->execute([$licenseKey]);
+        $existingRow = $existingSystemKey->fetch();
+
+        if ($existingRow) {
+            $existingSysKey = $existingRow['license_key'];
+            // Update user's gumroad_license field if not already set
+            $this->conn->prepare("UPDATE users SET gumroad_license=? WHERE id=? AND (gumroad_license IS NULL OR gumroad_license='')")
+                ->execute([$licenseKey, $userId]);
+
+            return [
+                'success'            => true,
+                'message'            => 'License activated successfully! Your plan is now active.',
+                'product'            => 'Activated Plan',
+                'system_license_key' => $existingSysKey,
+                'gumroad_license_key'=> $licenseKey
+            ];
         }
 
         if (!function_exists('curl_init')) {
@@ -641,7 +661,10 @@ class LicenseGenerator
     public function getLicensesByUserId($userId)
     {
         $stmt = $this->conn->prepare("
-            SELECT l.*, pm.product_name, pm.product_type, pm.billing_cycle
+            SELECT l.*,
+                   COALESCE(pm.product_name, UPPER(REPLACE(l.product_slug, '-', ' '))) AS product_name,
+                   pm.product_type,
+                   COALESCE(pm.billing_cycle, l.product_slug) AS billing_cycle
             FROM licenses l
             LEFT JOIN product_mappings pm ON l.product_id = pm.product_id
             WHERE l.user_id = ?

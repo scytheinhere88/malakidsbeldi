@@ -96,9 +96,6 @@ define('DEFAULT_LANG', 'en');
 // ============================================
 // PAYMENT GATEWAYS
 // ============================================
-define('LEMONSQUEEZY_API_KEY', $_ENV['LEMONSQUEEZY_API_KEY'] ?? '');
-define('LEMONSQUEEZY_STORE_ID', $_ENV['LEMONSQUEEZY_STORE_ID'] ?? '');
-define('LEMONSQUEEZY_WEBHOOK_SECRET', $_ENV['LEMONSQUEEZY_WEBHOOK_SECRET'] ?? '');
 define('GUMROAD_WEBHOOK_SECRET', $_ENV['GUMROAD_WEBHOOK_SECRET'] ?? '');
 
 // ============================================
@@ -114,10 +111,10 @@ define('GOOGLE_PLACES_API_KEY', $_ENV['GOOGLE_PLACES_API_KEY'] ?? '');
 define('CRON_AUTH_KEY', $_ENV['CRON_AUTH_KEY'] ?? 'change-this-key-in-production');
 
 const PLAN_DATA = [
-  'free'     => ['name'=>'Free',     'limit'=>20,   'rollover'=>false,'pm'=>0,    'pa'=>0,     'pl'=>0,     'color'=>'#454568','badge'=>'','has_addons'=>false,'gumroad_monthly'=>'','gumroad_annual'=>'','gumroad_lifetime'=>'','lemon_monthly'=>'','lemon_annual'=>'','lemon_lifetime'=>''],
-  'pro'      => ['name'=>'Pro',      'limit'=>500,  'rollover'=>true, 'pm'=>19.9, 'pa'=>190.9, 'pl'=>0,     'color'=>'#f0a500','badge'=>'Popular','has_addons'=>false,'gumroad_monthly'=>'pro-monthly-plan','gumroad_annual'=>'pro-yearly-plan','gumroad_lifetime'=>'','lemon_monthly'=>'1382565','lemon_annual'=>'1382587','lemon_lifetime'=>''],
-  'platinum' => ['name'=>'Platinum', 'limit'=>1500, 'rollover'=>true, 'pm'=>69.9, 'pa'=>671.9, 'pl'=>0,     'color'=>'#00d4aa','badge'=>'Best Value','has_addons'=>true,'gumroad_monthly'=>'platinum-monthly-plan','gumroad_annual'=>'platinum-yearly-plan','gumroad_lifetime'=>'','lemon_monthly'=>'1382591','lemon_annual'=>'1382594','lemon_lifetime'=>''],
-  'lifetime' => ['name'=>'Lifetime', 'limit'=>-1,   'rollover'=>true, 'pm'=>0,    'pa'=>0,     'pl'=>469.9, 'color'=>'#c084fc','badge'=>'Forever','has_addons'=>true,'gumroad_monthly'=>'','gumroad_annual'=>'','gumroad_lifetime'=>'lifetime-access-plan','lemon_monthly'=>'','lemon_annual'=>'','lemon_lifetime'=>'1382596'],
+  'free'     => ['name'=>'Free',     'limit'=>20,   'rollover'=>false,'pm'=>0,    'pa'=>0,     'pl'=>0,     'color'=>'#454568','badge'=>'','has_addons'=>false,'gumroad_monthly'=>'','gumroad_annual'=>'','gumroad_lifetime'=>''],
+  'pro'      => ['name'=>'Pro',      'limit'=>500,  'rollover'=>true, 'pm'=>19.9, 'pa'=>190.9, 'pl'=>0,     'color'=>'#f0a500','badge'=>'Popular','has_addons'=>false,'gumroad_monthly'=>'pro-monthly-plan','gumroad_annual'=>'pro-yearly-plan','gumroad_lifetime'=>''],
+  'platinum' => ['name'=>'Platinum', 'limit'=>1500, 'rollover'=>true, 'pm'=>69.9, 'pa'=>671.9, 'pl'=>0,     'color'=>'#00d4aa','badge'=>'Best Value','has_addons'=>true,'gumroad_monthly'=>'platinum-monthly-plan','gumroad_annual'=>'platinum-yearly-plan','gumroad_lifetime'=>''],
+  'lifetime' => ['name'=>'Lifetime', 'limit'=>-1,   'rollover'=>true, 'pm'=>0,    'pa'=>0,     'pl'=>469.9, 'color'=>'#c084fc','badge'=>'Forever','has_addons'=>true,'gumroad_monthly'=>'','gumroad_annual'=>'','gumroad_lifetime'=>'lifetime-access-plan'],
 ];
 
 const ADDON_DATA = [
@@ -129,7 +126,6 @@ const ADDON_DATA = [
     'icon'  => '📊',
     'desc'  => 'Generate CSV data from domain lists — daerah, alamat, embed maps, email, telepon.',
     'gumroad_permalink' => 'csv-generator-addon',
-    'lemon_variant' => '1382835',
   ],
   'zip-manager' => [
     'name'  => 'ZIP Manager',
@@ -138,7 +134,6 @@ const ADDON_DATA = [
     'icon'  => '🗜️',
     'desc'  => 'Unzip, modify content inside ZIPs, and repackage — bulk ZIP operations.',
     'gumroad_permalink' => 'zip-manager-addon',
-    'lemon_variant' => '1383008',
   ],
   'copy-rename' => [
     'name'  => 'Copy & Rename',
@@ -147,7 +142,6 @@ const ADDON_DATA = [
     'icon'  => '📋',
     'desc'  => 'Bulk copy and rename files/folders with pattern-based rules.',
     'gumroad_permalink' => 'copy-rename-addon',
-    'lemon_variant' => '1383010',
   ],
   // ── Autopilot (Lifetime-exclusive) ─────────────────────────────────
   'autopilot' => [
@@ -156,9 +150,8 @@ const ADDON_DATA = [
     'price'         => 99.9,
     'icon'          => '🤖',
     'desc'          => 'Pick folder + drop domains = 50 ZIPs ready. Full AI-powered pipeline, no manual steps.',
-    'lifetime_only' => true,   // only lifetime users can purchase
+    'lifetime_only' => true,
     'gumroad_permalink' => 'ai-autopilot-bundle',
-    'lemon_variant' => '1383013',
   ],
   // ── Full Bundle (all 3) ─────────────────────────────────────────────
   'premium-bundle' => [
@@ -169,7 +162,6 @@ const ADDON_DATA = [
     'desc'     => 'CSV Generator + ZIP Manager + Copy & Rename — hemat vs beli satuan.',
     'includes' => ['csv-generator-pro','zip-manager','copy-rename'],
     'gumroad_permalink' => 'all-in-one-bundle',
-    'lemon_variant' => '1383012',
   ],
 ];
 

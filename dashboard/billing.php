@@ -232,7 +232,7 @@ try {
 
       <form id="activateLicenseForm" style="display:flex;gap:12px;flex-wrap:wrap;align-items:stretch;">
         <input type="text" id="licenseKey" name="license_key"
-          placeholder="e.g. PRO-M-ABC12345-XYZ789-A1B2  or  xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+          placeholder="e.g. PRO-M-ABC12345-XYZ789-A1B2  or  xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx (Gumroad key)"
           required autocomplete="off" spellcheck="false"
           style="flex:1;min-width:280px;background:var(--dim);border:1px solid var(--border);border-radius:8px;padding:14px 16px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:12px;">
         <button type="submit" class="btn btn-amber" id="activateBtn" style="min-width:140px;">
