@@ -721,9 +721,12 @@ class DataScraper {
             }
         }
 
-        // Sort REGION_MAP keys longest-first for greedy match
-        $regionKeys = array_keys(self::REGION_MAP);
-        usort($regionKeys, fn($a,$b) => strlen($b) - strlen($a));
+        static $sortedRegionKeys = null;
+        if ($sortedRegionKeys === null) {
+            $sortedRegionKeys = array_keys(self::REGION_MAP);
+            usort($sortedRegionKeys, fn($a,$b) => strlen($b) - strlen($a));
+        }
+        $regionKeys = $sortedRegionKeys;
 
         $regionKey = null;
         $regionPos = -1;

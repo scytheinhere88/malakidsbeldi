@@ -1,5 +1,5 @@
 <?php
-$appEnv = $_ENV['APP_ENV'] ?? 'production';
+$appEnv = $_ENV['APP_ENV'] ?? getenv('APP_ENV') ?: 'production';
 define('APP_ENV', $appEnv);
 define('DEBUG_MODE', $appEnv === 'development');
 

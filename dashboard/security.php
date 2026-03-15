@@ -63,9 +63,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $err = 'Invalid verification code.';
         }
     } elseif (isset($_POST['regenerate_backup_codes'])) {
-        $code = $_POST['code'] ?? '';
+        $code     = $_POST['code'] ?? '';
+        $password = $_POST['account_password'] ?? '';
+
+        $remainingNow = $twoFA->getRemainingBackupCodes();
+        $verified = false;
 
         if ($twoFA->verifyTOTP($code) || $twoFA->verifyBackupCode($code)) {
+            $verified = true;
+        } elseif ($remainingNow === 0 && !empty($password) && password_verify($password, $user['password'])) {
+            $verified = true;
+        }
+
+        if ($verified) {
             $newBackupCodes = $twoFA->generateBackupCodes();
             if ($twoFA->regenerateBackupCodes($newBackupCodes)) {
                 $backupCodes = $newBackupCodes;
@@ -76,6 +86,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         } else {
             $err = 'Invalid verification code.';
+        }
+    } elseif (isset($_POST['delete_account'])) {
+        $confirmText = trim($_POST['confirm_text'] ?? '');
+        $password    = $_POST['current_password'] ?? '';
+
+        if ($confirmText !== 'DELETE MY ACCOUNT') {
+            $err = 'Please type DELETE MY ACCOUNT to confirm.';
+        } elseif (!password_verify($password, $user['password'])) {
+            $err = 'Incorrect password.';
+        } else {
+            $uid = $user['id'];
+            $auditLogger->log('account_deletion_requested', 'security', 'success');
+
+            db()->prepare("UPDATE users SET
+                deleted_at = NOW(),
+                status = 'deleted',
+                email = CONCAT('deleted_', id, '_', UNIX_TIMESTAMP(), '@deleted.invalid'),
+                name = 'Deleted User',
+                password = '',
+                gumroad_license = NULL,
+                reset_token = NULL
+                WHERE id = ?")->execute([$uid]);
+
+            db()->prepare("DELETE FROM two_factor_auth WHERE user_id = ?")->execute([$uid]);
+
+            session_destroy();
+            header('Location: ' . APP_URL . '/auth/login.php?msg=account_deleted');
+            exit;
         }
     }
 }
@@ -170,10 +208,21 @@ $remainingBackupCodes = $twoFA->getRemainingBackupCodes();
                     </p>
                     <form method="POST">
                         <?= csrf_field() ?>
-                        <div class="form-field">
-                            <label class="form-label">Enter verification code</label>
-                            <input type="text" name="code" placeholder="000000" required pattern="[0-9]{6,8}" style="font-family:'JetBrains Mono',monospace;">
+                        <?php if ($remainingBackupCodes === 0): ?>
+                        <div style="padding:10px 12px;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:6px;font-size:12px;color:#ef4444;margin-bottom:12px;">
+                            No backup codes remain. Verify with your authenticator app or account password.
                         </div>
+                        <?php endif; ?>
+                        <div class="form-field">
+                            <label class="form-label">Verification code (TOTP or backup code)</label>
+                            <input type="text" name="code" placeholder="000000" pattern="[0-9]{6,8}" style="font-family:'JetBrains Mono',monospace;">
+                        </div>
+                        <?php if ($remainingBackupCodes === 0): ?>
+                        <div class="form-field">
+                            <label class="form-label">Or enter account password</label>
+                            <input type="password" name="account_password" placeholder="Your account password" autocomplete="current-password">
+                        </div>
+                        <?php endif; ?>
                         <button type="submit" name="regenerate_backup_codes" class="btn btn-amber">Regenerate Codes</button>
                     </form>
                 </div>
@@ -281,6 +330,54 @@ $remainingBackupCodes = $twoFA->getRemainingBackupCodes();
             <li>Regularly review your account activity</li>
         </ul>
     </div>
+
+    <div class="security-card">
+        <h2 style="margin-top:0;">Data & Privacy</h2>
+        <p style="color:var(--muted);font-size:13px;margin-bottom:20px;">
+            Under GDPR and applicable privacy laws, you have the right to access your personal data and to request account deletion.
+        </p>
+        <div style="display:flex;gap:20px;flex-wrap:wrap;">
+            <div style="flex:1;min-width:280px;">
+                <h3 style="margin-top:0;font-size:15px;">Export Your Data</h3>
+                <p style="color:var(--muted);font-size:13px;margin-bottom:16px;">
+                    Download a copy of all data associated with your account in JSON format.
+                </p>
+                <a href="<?= APP_URL ?>/api/data_export_gdpr.php" class="btn btn-ghost">Download My Data</a>
+            </div>
+            <div style="flex:1;min-width:280px;">
+                <h3 style="margin-top:0;font-size:15px;color:#ef4444;">Delete Account</h3>
+                <p style="color:var(--muted);font-size:13px;margin-bottom:16px;">
+                    Permanently delete your account and anonymize all associated data. This action cannot be undone.
+                </p>
+                <button onclick="document.getElementById('delete-account-modal').style.display='flex'" class="btn btn-danger">Delete My Account</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="delete-account-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;align-items:center;justify-content:center;padding:20px;">
+        <div style="background:var(--card);border:1px solid rgba(239,68,68,0.4);border-radius:16px;padding:32px;max-width:440px;width:100%;">
+            <h2 style="margin-top:0;color:#ef4444;font-size:18px;">Delete Account</h2>
+            <p style="color:var(--muted);font-size:13px;margin-bottom:16px;">
+                This will permanently anonymize your account data. Your plan, usage history, and all settings will be removed. This cannot be undone.
+            </p>
+            <form method="POST">
+                <?= csrf_field() ?>
+                <div class="form-field">
+                    <label class="form-label">Current Password</label>
+                    <input type="password" name="current_password" required autocomplete="current-password">
+                </div>
+                <div class="form-field">
+                    <label class="form-label">Type <strong>DELETE MY ACCOUNT</strong> to confirm</label>
+                    <input type="text" name="confirm_text" placeholder="DELETE MY ACCOUNT" required autocomplete="off">
+                </div>
+                <div style="display:flex;gap:12px;margin-top:20px;">
+                    <button type="button" onclick="document.getElementById('delete-account-modal').style.display='none'" class="btn btn-ghost" style="flex:1;">Cancel</button>
+                    <button type="submit" name="delete_account" class="btn btn-danger" style="flex:1;">Delete Forever</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     </div>
 </div>
 </div>

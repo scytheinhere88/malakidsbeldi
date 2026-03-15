@@ -94,6 +94,12 @@ define('SUPPORT_TELEGRAM_URL', 'https://t.me/scytheinhere');
 define('SESSION_NAME', 'br_saas');
 define('DEFAULT_LANG', 'en');
 
+define('SESSION_LIFETIME',        86400);
+define('SESSION_ADMIN_TIMEOUT',   1800);
+define('SESSION_USER_TIMEOUT',    43200);
+define('SESSION_SID_LENGTH',      48);
+define('SESSION_SID_BITS',        6);
+
 // Set FORCE_HTTPS=true in .env when running on HTTPS-only hosting
 // Set TRUST_PROXY=true in .env when behind a trusted reverse proxy (Nginx, Cloudflare, etc.)
 define('FORCE_HTTPS', filter_var($_ENV['FORCE_HTTPS'] ?? 'true', FILTER_VALIDATE_BOOLEAN));
@@ -350,12 +356,12 @@ function ss(){
     ini_set('session.cookie_samesite',  'Strict');
     ini_set('session.use_strict_mode',  1);
     ini_set('session.use_only_cookies', 1);
-    ini_set('session.gc_maxlifetime',   86400);
-    ini_set('session.sid_length',       48);
-    ini_set('session.sid_bits_per_character', 6);
+    ini_set('session.gc_maxlifetime',   SESSION_LIFETIME);
+    ini_set('session.sid_length',       SESSION_SID_LENGTH);
+    ini_set('session.sid_bits_per_character', SESSION_SID_BITS);
     session_name(SESSION_NAME);
     if(PHP_VERSION_ID >= 70300){
-      session_set_cookie_params(['lifetime'=>86400,'path'=>'/','httponly'=>true,'secure'=>$https,'samesite'=>'Strict']);
+      session_set_cookie_params(['lifetime'=>SESSION_LIFETIME,'path'=>'/','httponly'=>true,'secure'=>$https,'samesite'=>'Strict']);
     }
     session_start();
   }
@@ -372,12 +378,12 @@ function ss(){
   }
 }
 function startSession(){ss();}
-function isLoggedIn():bool{ss();if(empty($_SESSION['uid']))return false;if(time()-($_SESSION['lt']??0)>43200){session_destroy();return false;}$_SESSION['lt']=time();return true;}
+function isLoggedIn():bool{ss();if(empty($_SESSION['uid']))return false;if(time()-($_SESSION['lt']??0)>SESSION_USER_TIMEOUT){session_destroy();return false;}$_SESSION['lt']=time();return true;}
 function requireLogin(){if(!isLoggedIn()){header('Location:'.APP_URL.'/auth/login.php?next='.urlencode($_SERVER['REQUEST_URI']));exit;}}
 function isAdmin():bool{
   ss();
   if(empty($_SESSION['is_admin']))return false;
-  $adminTimeout = 1800;
+  $adminTimeout = SESSION_ADMIN_TIMEOUT;
   if(time()-($_SESSION['admin_lt']??0)>$adminTimeout){
     $_SESSION['is_admin']=false;
     unset($_SESSION['admin_lt'],$_SESSION['admin_id']);
