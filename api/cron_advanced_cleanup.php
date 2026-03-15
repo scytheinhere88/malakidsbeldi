@@ -227,7 +227,7 @@ try {
     error_log("cron_advanced_cleanup error: " . $e->getMessage() . " in " . $e->getFile() . ":" . $e->getLine());
     echo json_encode([
         'success' => false,
-        'error' => defined('DEBUG_MODE') && DEBUG_MODE ? $e->getMessage() : 'Cleanup failed. Check server logs.',
+        'error' => 'Cleanup failed. Check server logs.',
         'stats' => $stats
     ], JSON_PRETTY_PRINT);
 

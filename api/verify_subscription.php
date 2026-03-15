@@ -90,6 +90,6 @@ try {
     echo json_encode([
         'success' => false,
         'error' => 'Failed to verify subscription',
-        'details' => defined('APP_DEBUG') && APP_DEBUG ? $e->getMessage() : null
+        'details' => null
     ]);
 }

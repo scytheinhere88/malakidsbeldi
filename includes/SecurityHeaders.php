@@ -59,7 +59,7 @@ class SecurityHeaders {
         // unsafe-eval is removed — no legitimate code in this app needs eval().
         $csp = [
             "default-src 'self'",
-            "script-src 'self' 'nonce-{$nonce}' 'unsafe-inline' https://cdnjs.cloudflare.com",
+            "script-src 'self' 'nonce-{$nonce}' https://cdnjs.cloudflare.com",
             "style-src 'self' 'nonce-{$nonce}' 'unsafe-inline' https://fonts.googleapis.com",
             "img-src 'self' data: https: blob:",
             "font-src 'self' data: https://fonts.gstatic.com",
