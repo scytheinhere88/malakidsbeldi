@@ -380,27 +380,66 @@ class SecurityManager {
     }
 
     private function getClientIP() {
-        $ipKeys = [
-            'HTTP_CF_CONNECTING_IP',
-            'HTTP_X_FORWARDED_FOR',
-            'HTTP_X_REAL_IP',
-            'REMOTE_ADDR'
-        ];
+        $remoteAddr = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
 
-        foreach ($ipKeys as $key) {
-            if (!empty($_SERVER[$key])) {
-                $ip = $_SERVER[$key];
-                if (strpos($ip, ',') !== false) {
-                    $ips = explode(',', $ip);
-                    $ip = trim($ips[0]);
-                }
-                if (filter_var($ip, FILTER_VALIDATE_IP)) {
-                    return $ip;
+        $trustedProxies = [];
+        if (defined('TRUST_PROXY') && TRUST_PROXY === true) {
+            $trustedProxies = [
+                '127.0.0.1',
+                '::1',
+                '10.0.0.0/8',
+                '172.16.0.0/12',
+                '192.168.0.0/16',
+                '103.21.244.0/22',
+                '103.22.200.0/22',
+                '103.31.4.0/22',
+                '104.16.0.0/13',
+                '104.24.0.0/14',
+                '108.162.192.0/18',
+                '131.0.72.0/22',
+                '141.101.64.0/18',
+                '162.158.0.0/15',
+                '172.64.0.0/13',
+                '173.245.48.0/20',
+                '188.114.96.0/20',
+                '190.93.240.0/20',
+                '197.234.240.0/22',
+                '198.41.128.0/17',
+            ];
+        }
+
+        if (!empty($trustedProxies) && $this->isIPInRanges($remoteAddr, $trustedProxies)) {
+            foreach (['HTTP_CF_CONNECTING_IP', 'HTTP_X_FORWARDED_FOR', 'HTTP_X_REAL_IP'] as $key) {
+                if (!empty($_SERVER[$key])) {
+                    $ip = $_SERVER[$key];
+                    if (strpos($ip, ',') !== false) {
+                        $ip = trim(explode(',', $ip)[0]);
+                    }
+                    if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
+                        return $ip;
+                    }
                 }
             }
         }
 
-        return '0.0.0.0';
+        return filter_var($remoteAddr, FILTER_VALIDATE_IP) ? $remoteAddr : '0.0.0.0';
+    }
+
+    private function isIPInRanges(string $ip, array $ranges): bool {
+        $ipLong = ip2long($ip);
+        if ($ipLong === false) return false;
+        foreach ($ranges as $range) {
+            if (strpos($range, '/') === false) {
+                if ($ip === $range) return true;
+                continue;
+            }
+            [$subnet, $bits] = explode('/', $range);
+            $subnetLong = ip2long($subnet);
+            if ($subnetLong === false) continue;
+            $mask = ~((1 << (32 - (int)$bits)) - 1);
+            if (($ipLong & $mask) === ($subnetLong & $mask)) return true;
+        }
+        return false;
     }
 
     public function cleanupExpiredSessions() {

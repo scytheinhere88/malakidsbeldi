@@ -159,10 +159,28 @@ $search=trim($_GET['q']??'');
 $where=$search?"WHERE u.email LIKE ? OR u.name LIKE ?":'';
 $params=$search?["%$search%","%$search%"]:[];
 $users=db()->prepare("SELECT u.*,
-    (SELECT COALESCE(SUM(total_domains),0) FROM csv_gen_analytics WHERE user_id=u.id AND MONTH(created_at)=MONTH(NOW())) as mrows,
-    (SELECT COALESCE(SUM(total_domains),0) FROM csv_gen_analytics WHERE user_id=u.id) as trows,
-    (SELECT COALESCE(SUM(csv_rows),0) FROM usage_log WHERE user_id=u.id AND job_type='autopilot') as autopilot_usage
-    FROM users u $where ORDER BY u.created_at DESC LIMIT 50");
+    COALESCE(cga_month.mrows,0) as mrows,
+    COALESCE(cga_all.trows,0) as trows,
+    COALESCE(ul_ap.autopilot_usage,0) as autopilot_usage
+    FROM users u
+    LEFT JOIN (
+        SELECT user_id, SUM(total_domains) as mrows
+        FROM csv_gen_analytics
+        WHERE MONTH(created_at)=MONTH(NOW()) AND YEAR(created_at)=YEAR(NOW())
+        GROUP BY user_id
+    ) cga_month ON cga_month.user_id = u.id
+    LEFT JOIN (
+        SELECT user_id, SUM(total_domains) as trows
+        FROM csv_gen_analytics
+        GROUP BY user_id
+    ) cga_all ON cga_all.user_id = u.id
+    LEFT JOIN (
+        SELECT user_id, SUM(csv_rows) as autopilot_usage
+        FROM usage_log
+        WHERE job_type='autopilot'
+        GROUP BY user_id
+    ) ul_ap ON ul_ap.user_id = u.id
+    $where ORDER BY u.created_at DESC LIMIT 50");
 $users->execute($params);$ulist=$users->fetchAll();
 ?><!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>Users — Admin — BulkReplace</title>

@@ -374,8 +374,28 @@ function ss(){
 function startSession(){ss();}
 function isLoggedIn():bool{ss();if(empty($_SESSION['uid']))return false;if(time()-($_SESSION['lt']??0)>43200){session_destroy();return false;}$_SESSION['lt']=time();return true;}
 function requireLogin(){if(!isLoggedIn()){header('Location:'.APP_URL.'/auth/login.php?next='.urlencode($_SERVER['REQUEST_URI']));exit;}}
-function isAdmin():bool{ss();return !empty($_SESSION['is_admin']);}
-function requireAdmin(){ss();if(!isAdmin()){header('Location:'.APP_URL.'/admin/login.php');exit;}}
+function isAdmin():bool{
+  ss();
+  if(empty($_SESSION['is_admin']))return false;
+  $adminTimeout = 1800;
+  if(time()-($_SESSION['admin_lt']??0)>$adminTimeout){
+    $_SESSION['is_admin']=false;
+    unset($_SESSION['admin_lt'],$_SESSION['admin_id']);
+    return false;
+  }
+  $_SESSION['admin_lt']=time();
+  return true;
+}
+function requireAdmin(){
+  ss();
+  if(!isAdmin()){
+    $expired = !empty($_SESSION['is_admin_was_set']);
+    unset($_SESSION['is_admin_was_set']);
+    $loc = APP_URL.'/admin/login.php'.($expired?'?msg=session_expired':'');
+    header('Location:'.$loc);
+    exit;
+  }
+}
 function verifyCronAuth():bool{if(php_sapi_name()==='cli')return true;$key=$_GET['key']??$_POST['key']??'';return hash_equals(CRON_AUTH_KEY,$key);}
 function requireCronAuth(){if(!verifyCronAuth()){http_response_code(401);header('Content-Type:application/json');echo json_encode(['success'=>false,'error'=>'Unauthorized']);exit;}}
 function currentUser():?array{if(!isLoggedIn())return null;$s=db()->prepare("SELECT * FROM users WHERE id=?");$s->execute([$_SESSION['uid']]);return $s->fetch()?:null;}

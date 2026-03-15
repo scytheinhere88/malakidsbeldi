@@ -589,16 +589,34 @@ try {
 
         $setPasswordUrl = APP_URL . '/auth/reset_password.php?token=' . $resetToken . '&email=' . urlencode($email);
 
-        $emailSystem->sendFromTemplate('welcome', $email, $userName, [
+        $welcomeResult = $emailSystem->sendFromTemplate('welcome', $email, $userName, [
             'user_name'        => $userName,
             'plan_name'        => ucfirst($plan) . ' Plan',
             'set_password_url' => $setPasswordUrl,
             'login_url'        => APP_URL . '/auth/login.php'
         ], $userId, 1);
+
+        if (!$welcomeResult) {
+            error_log("Gumroad Ping: Welcome email FAILED for new user {$email} (sale: {$sale_id}) — queued for retry");
+            try {
+                $retryQueue = new WebhookRetryQueue($pdo);
+                $retryQueue->queue('email_welcome', json_encode([
+                    'email'            => $email,
+                    'user_name'        => $userName,
+                    'plan_name'        => ucfirst($plan) . ' Plan',
+                    'set_password_url' => $setPasswordUrl,
+                    'login_url'        => APP_URL . '/auth/login.php',
+                    'user_id'          => $userId,
+                    'sale_id'          => $sale_id,
+                ]), []);
+            } catch (Exception $qEx) {
+                error_log("Gumroad Ping: Failed to queue welcome email retry - " . $qEx->getMessage());
+            }
+        }
     }
 
     // Kirim system license key ke customer
-    $emailSystem->sendFromTemplate('license_delivery', $email, $userName, [
+    $licenseResult = $emailSystem->sendFromTemplate('license_delivery', $email, $userName, [
         'user_name'    => $userName,
         'product_name' => $product_name,
         'license_key'  => $customLicenseKey,
@@ -608,7 +626,26 @@ try {
         'is_new_user'  => $isNewUser
     ], $userId, 3);
 
-    $emailSystem->sendFromTemplate('invoice', $email, $userName, [
+    if (!$licenseResult) {
+        error_log("Gumroad Ping: License delivery email FAILED for {$email} (sale: {$sale_id}) — queued for retry");
+        try {
+            $retryQueue = $retryQueue ?? new WebhookRetryQueue($pdo);
+            $retryQueue->queue('email_license', json_encode([
+                'email'        => $email,
+                'user_name'    => $userName,
+                'product_name' => $product_name,
+                'license_key'  => $customLicenseKey,
+                'plan_name'    => ucfirst($plan) . ' Plan',
+                'user_id'      => $userId,
+                'sale_id'      => $sale_id,
+                'is_new_user'  => $isNewUser,
+            ]), []);
+        } catch (Exception $qEx) {
+            error_log("Gumroad Ping: Failed to queue license email retry - " . $qEx->getMessage());
+        }
+    }
+
+    $invoiceResult = $emailSystem->sendFromTemplate('invoice', $email, $userName, [
         'user_name'     => $userName,
         'order_id'      => $sale_id,
         'plan_name'     => ucfirst($plan) . ' Plan',
@@ -617,6 +654,25 @@ try {
         'billing_cycle' => ucfirst($cycle),
         'invoice_url'   => APP_URL . '/dashboard/billing.php'
     ], $userId, 3, ['sale_id' => $sale_id, 'amount' => $amount, 'gateway' => 'gumroad']);
+
+    if (!$invoiceResult) {
+        error_log("Gumroad Ping: Invoice email FAILED for {$email} (sale: {$sale_id}) — queued for retry");
+        try {
+            $retryQueue = $retryQueue ?? new WebhookRetryQueue($pdo);
+            $retryQueue->queue('email_invoice', json_encode([
+                'email'         => $email,
+                'user_name'     => $userName,
+                'order_id'      => $sale_id,
+                'plan_name'     => ucfirst($plan) . ' Plan',
+                'amount'        => $amount,
+                'billing_cycle' => $cycle,
+                'user_id'       => $userId,
+                'sale_id'       => $sale_id,
+            ]), []);
+        } catch (Exception $qEx) {
+            error_log("Gumroad Ping: Failed to queue invoice email retry - " . $qEx->getMessage());
+        }
+    }
 
     $monitor->end(200);
     http_response_code(200);

@@ -20,8 +20,20 @@ if(isset($_GET['cancel_2fa'])){
 }
 
 $err='';
-$next = filter_var($_GET['next']??'/dashboard/', FILTER_SANITIZE_URL);
-if(!$next || strpos($next,'/')!==0) $next='/dashboard/';
+$nextRaw = $_GET['next'] ?? '/dashboard/';
+$nextParsed = parse_url($nextRaw);
+if(
+    !$nextRaw
+    || ($nextParsed === false)
+    || !empty($nextParsed['scheme'])
+    || !empty($nextParsed['host'])
+    || strpos($nextRaw, '/') !== 0
+    || strpos($nextRaw, '//') === 0
+) {
+    $next = '/dashboard/';
+} else {
+    $next = $nextRaw;
+}
 
 $rateLimiter = new RateLimiter(db());
 $auditLogger = new AuditLogger(db());
@@ -75,7 +87,7 @@ if(isset($_POST['verify_2fa']) && isset($_SESSION['temp_2fa_user'])){
                 unset($_SESSION['temp_2fa_user']);
                 $showTwoFactorStep = false;
             } else {
-                unset($_SESSION['temp_2fa_user'], $_SESSION['2fa_attempts'], $_SESSION['2fa_window_start']);
+                unset($_SESSION['temp_2fa_user'], $_SESSION['2fa_attempts'], $_SESSION['2fa_window_start'], $_SESSION['csrf_token']);
 
                 $sessionId = $securityManager->createSession($u['id']);
                 $_SESSION['uid'] = (int)$u['id'];
@@ -167,6 +179,8 @@ if($_SERVER['REQUEST_METHOD']==='POST' && !isset($_POST['verify_2fa'])){
                             $_SESSION['uid'] = (int)$u['id'];
                             $_SESSION['session_id'] = $sessionId;
                             $_SESSION['lt']  = time();
+                            unset($_SESSION['csrf_token']);
+                            session_regenerate_id(true);
 
                             $auditLogger->setUserId($u['id']);
                             $auditLogger->logAuth('login_success', $email, 'success');

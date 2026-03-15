@@ -47,8 +47,10 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
         } elseif(!empty($u) && !empty($p) && $u===ADMIN_USERNAME && password_verify($p,ADMIN_PASS_HASH)){
             $securityManager->clearFailedLoginAttempts('admin_' . $u, $ipAddress);
 
+            session_regenerate_id(true);
             $_SESSION['is_admin'] = true;
             $_SESSION['admin_id'] = 1;
+            $_SESSION['admin_lt'] = time();
             $_SESSION['lt'] = time();
 
             $auditLogger->setAdminId(1);
@@ -91,6 +93,7 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
     </div>
   </div>
   <?php if($err): ?><div class="err-box">⚠ <?= htmlspecialchars($err) ?></div><?php endif; ?>
+  <?php if(($_GET['msg']??'')==='session_expired'): ?><div class="info-box">Session expired due to inactivity. Please log in again.</div><?php endif; ?>
   <form method="POST" autocomplete="off">
     <?= csrf_field() ?>
     <div class="form-field">
