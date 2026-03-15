@@ -912,7 +912,7 @@ class DataScraper {
         ]);
 
         $ch = curl_init($url);
-        curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER=>true, CURLOPT_TIMEOUT=>10, CURLOPT_SSL_VERIFYPEER=>false]);
+        curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER=>true, CURLOPT_TIMEOUT=>10, CURLOPT_SSL_VERIFYPEER=>true, CURLOPT_SSL_VERIFYHOST=>2]);
         $resp = curl_exec($ch);
         curl_close($ch);
 
@@ -1182,7 +1182,8 @@ class DataScraper {
                 curl_setopt_array($ch, [
                     CURLOPT_RETURNTRANSFER => true,
                     CURLOPT_TIMEOUT => 10,
-                    CURLOPT_SSL_VERIFYPEER => false
+                    CURLOPT_SSL_VERIFYPEER => true,
+                    CURLOPT_SSL_VERIFYHOST => 2,
                 ]);
                 curl_multi_add_handle($mh, $ch);
                 $handles[$idx] = ['handle' => $ch, 'parsed' => $parsed];

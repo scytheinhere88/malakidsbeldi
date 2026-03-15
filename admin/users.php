@@ -120,8 +120,8 @@ if($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['addon_action'])){
     if($action==='grant'){
       db()->prepare("INSERT IGNORE INTO user_addons(user_id,addon_id,is_active,purchased_at)VALUES(?,?,1,NOW())")
         ->execute([$uid,$aid]);
-      db()->prepare("INSERT INTO admin_notes(user_id,note,created_by)VALUES(?,'Addon granted: ".$slug."','admin')")
-        ->execute([$uid]);
+      db()->prepare("INSERT INTO admin_notes(user_id,note,created_by)VALUES(?,?,'admin')")
+        ->execute([$uid, 'Addon granted: ' . $slug]);
 
       $auditLogger->logAdminAction('addon_granted', 'addon', $slug, [
         'user_id' => $uid,
@@ -132,8 +132,8 @@ if($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['addon_action'])){
     } else {
       db()->prepare("DELETE FROM user_addons WHERE user_id=? AND addon_id=?")
         ->execute([$uid,$aid]);
-      db()->prepare("INSERT INTO admin_notes(user_id,note,created_by)VALUES(?,'Addon revoked: ".$slug."','admin')")
-        ->execute([$uid]);
+      db()->prepare("INSERT INTO admin_notes(user_id,note,created_by)VALUES(?,?,'admin')")
+        ->execute([$uid, 'Addon revoked: ' . $slug]);
 
       $auditLogger->logAdminAction('addon_revoked', 'addon', $slug, [
         'user_id' => $uid,

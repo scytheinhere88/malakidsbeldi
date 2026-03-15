@@ -268,7 +268,28 @@ function getAddonSlugs(string $purchasedSlug): array {
 
 function db():PDO {
   static $p=null; if($p)return $p;
-  $p=new PDO("mysql:host=".DB_HOST.";dbname=".DB_NAME.";charset=utf8mb4",DB_USER,DB_PASS,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC]);
+  try {
+    $p=new PDO(
+      "mysql:host=".DB_HOST.";dbname=".DB_NAME.";charset=utf8mb4",
+      DB_USER,
+      DB_PASS,
+      [PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC]
+    );
+  } catch (PDOException $e) {
+    error_log("Database connection failed: " . $e->getMessage());
+    if (php_sapi_name() === 'cli') {
+      fwrite(STDERR, "Database connection failed: " . $e->getMessage() . "\n");
+      exit(1);
+    }
+    http_response_code(503);
+    $isJson = (strpos($_SERVER['HTTP_ACCEPT'] ?? '', 'application/json') !== false)
+           || (strpos($_SERVER['REQUEST_URI'] ?? '', '/api/') !== false);
+    if ($isJson) {
+      header('Content-Type: application/json');
+      die(json_encode(['success' => false, 'error' => 'Service temporarily unavailable. Please try again later.']));
+    }
+    die('Service temporarily unavailable. Please try again later.');
+  }
 
   if(file_exists(__DIR__.'/includes/AutoMigration.php')){
     require_once __DIR__.'/includes/AutoMigration.php';
