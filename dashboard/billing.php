@@ -48,33 +48,29 @@ try {
     <!-- HOW IT WORKS INFO (for free users) -->
     <?php if($user['plan'] === 'free'): ?>
     <div class="card" style="margin-bottom:24px;background:linear-gradient(135deg,rgba(0,212,170,.05),rgba(0,212,170,.02));border:2px solid rgba(0,212,170,.2);">
-      <div style="display:flex;align-items:start;gap:20px;">
-        <div style="flex:1;">
-          <div style="font-family:'Syne',sans-serif;font-size:20px;font-weight:800;color:var(--a2);margin-bottom:12px;">💡 Two Ways to Upgrade</div>
+      <div style="flex:1;">
+        <div style="font-family:'Syne',sans-serif;font-size:20px;font-weight:800;color:var(--a2);margin-bottom:12px;">How to Activate Your Plan</div>
 
-          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-bottom:16px;">
-            <div style="background:var(--dim);border-radius:8px;padding:16px;border-left:3px solid var(--a2);">
-              <div style="font-family:'Syne',sans-serif;font-size:14px;font-weight:700;color:#fff;margin-bottom:8px;">🔄 Monthly/Yearly Subscriptions</div>
-              <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted);line-height:1.8;margin-bottom:12px;">
-                Subscribe on Gumroad → Login with same email → Instant activation!<br><br>
-                <strong style="color:var(--text);">No license key needed</strong> - your plan activates automatically.
-              </div>
-              <div class="badge badge-ok" style="font-size:9px;">Recommended for Pro & Platinum</div>
-            </div>
-
-            <div style="background:var(--dim);border-radius:8px;padding:16px;border-left:3px solid var(--a1);">
-              <div style="font-family:'Syne',sans-serif;font-size:14px;font-weight:700;color:#fff;margin-bottom:8px;">🔑 One-Time Add-ons</div>
-              <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted);line-height:1.8;margin-bottom:12px;">
-                Buy add-on → Receive license key → Activate below<br><br>
-                <strong style="color:var(--text);">License key required</strong> (sent via email after purchase).
-              </div>
-              <div class="badge" style="background:rgba(251,191,36,.15);color:var(--a1);font-size:9px;">For CSV, ZIP, Autopilot add-ons</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-bottom:16px;">
+          <div style="background:var(--dim);border-radius:8px;padding:16px;border-left:3px solid var(--a2);">
+            <div style="font-family:'Syne',sans-serif;font-size:14px;font-weight:700;color:#fff;margin-bottom:8px;">Step 1 — Buy on Gumroad</div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted);line-height:1.8;">
+              Purchase any plan (Pro, Platinum, Lifetime) or add-on.<br>
+              After payment, Gumroad sends your <strong style="color:var(--text);">license key</strong> by email.
             </div>
           </div>
 
-          <div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;">
-            ✨ Both methods are instant and secure
+          <div style="background:var(--dim);border-radius:8px;padding:16px;border-left:3px solid var(--a1);">
+            <div style="font-family:'Syne',sans-serif;font-size:14px;font-weight:700;color:#fff;margin-bottom:8px;">Step 2 — Enter License Key Below</div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted);line-height:1.8;">
+              Copy the license key from your Gumroad email (format: <code style="color:var(--a1);">XXXX-XXXX-XXXX-XXXX</code>).<br>
+              Paste it in the "Activate License Key" box below and click Activate.
+            </div>
           </div>
+        </div>
+
+        <div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;">
+          License key applies to: Pro, Platinum, Lifetime, and all add-ons
         </div>
       </div>
     </div>
@@ -185,36 +181,30 @@ try {
     <!-- SUBSCRIPTION PLANS INFO (for free users) -->
     <?php if($user['plan'] === 'free'): ?>
     <div class="card" style="margin-bottom:24px;">
-      <div class="card-title">💳 Subscribe to a Plan</div>
-
-      <div class="info-box" style="margin-bottom:16px;background:linear-gradient(135deg,rgba(0,212,170,.08),rgba(0,212,170,.04));border-color:rgba(0,212,170,.25);">
-        <strong style="color:var(--a2);">⚡ Instant Activation</strong><br>
-        <span style="font-size:11px;color:var(--text);">Subscribe on Gumroad, then login with the same email - your plan activates automatically!</span>
-      </div>
+      <div class="card-title">Choose a Plan</div>
 
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px;margin-bottom:16px;">
         <div style="background:var(--dim);border-radius:12px;padding:20px;border:2px solid var(--border);">
           <div style="font-family:'Syne',sans-serif;font-size:20px;font-weight:800;color:var(--a2);margin-bottom:8px;">Pro Plan</div>
           <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--muted);margin-bottom:12px;">Perfect for growing teams</div>
           <div style="font-family:'Syne',sans-serif;font-size:28px;font-weight:800;color:#fff;margin-bottom:16px;">$<?= PLAN_DATA['pro']['pm'] ?><span style="font-size:14px;color:var(--muted);">/mo</span></div>
-          <a href="https://bulkreplacetool.gumroad.com/l/<?= PLAN_DATA['pro']['gumroad_monthly'] ?>" target="_blank" class="btn btn-amber gumroad-button" data-gumroad-single-product="true" style="width:100%;text-align:center;display:block;">Subscribe Now</a>
+          <a href="https://bulkreplacetool.gumroad.com/l/<?= PLAN_DATA['pro']['gumroad_monthly'] ?>" target="_blank" class="btn btn-amber" style="width:100%;text-align:center;display:block;">Buy on Gumroad</a>
         </div>
 
         <div style="background:var(--dim);border-radius:12px;padding:20px;border:2px solid var(--a1);">
           <div style="font-family:'Syne',sans-serif;font-size:20px;font-weight:800;color:var(--a1);margin-bottom:8px;">Platinum Plan</div>
           <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--muted);margin-bottom:12px;">Unlimited power</div>
           <div style="font-family:'Syne',sans-serif;font-size:28px;font-weight:800;color:#fff;margin-bottom:16px;">$<?= PLAN_DATA['platinum']['pm'] ?><span style="font-size:14px;color:var(--muted);">/mo</span></div>
-          <a href="https://bulkreplacetool.gumroad.com/l/<?= PLAN_DATA['platinum']['gumroad_monthly'] ?>" target="_blank" class="btn btn-amber gumroad-button" data-gumroad-single-product="true" style="width:100%;text-align:center;display:block;">Subscribe Now</a>
+          <a href="https://bulkreplacetool.gumroad.com/l/<?= PLAN_DATA['platinum']['gumroad_monthly'] ?>" target="_blank" class="btn btn-amber" style="width:100%;text-align:center;display:block;">Buy on Gumroad</a>
         </div>
       </div>
 
-      <div style="background:rgba(0,212,170,.05);border:1px dashed rgba(0,212,170,.3);border-radius:8px;padding:16px;margin-top:16px;">
-        <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted);line-height:1.8;">
-          <strong style="color:var(--text);">📌 How subscription activation works:</strong><br>
-          1. Click "Subscribe Now" and complete payment on Gumroad<br>
-          2. Make sure to use <strong style="color:var(--a2);"><?= htmlspecialchars($user['email']) ?></strong> as your payment email<br>
-          3. Your plan will be activated automatically within seconds<br>
-          4. Simply refresh this page or logout and login again
+      <div style="background:rgba(0,212,170,.05);border:1px dashed rgba(0,212,170,.3);border-radius:8px;padding:16px;margin-top:4px;">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted);line-height:1.9;">
+          <strong style="color:var(--text);">After purchasing on Gumroad:</strong><br>
+          1. Check your email for the license key from Gumroad<br>
+          2. Copy the license key (format: <code style="color:var(--a2);">XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX</code>)<br>
+          3. Paste it in the "Activate License Key" section below and click Activate
         </div>
       </div>
     </div>
@@ -222,19 +212,19 @@ try {
 
     <!-- ACTIVATE LICENSE -->
     <div class="card">
-      <div class="card-title">🔑 Activate License Key</div>
+      <div class="card-title">Activate License Key</div>
 
       <p style="font-size:14px;color:var(--muted);margin-bottom:20px;line-height:1.6;">
-        Enter the license key from your Gumroad purchase confirmation email to activate your plan or add-on.
+        Enter your Gumroad license key to activate your plan or add-on. The key is in your Gumroad purchase confirmation email.
       </p>
 
       <div id="activationMessage"></div>
 
       <form id="activateLicenseForm" style="display:flex;gap:12px;flex-wrap:wrap;align-items:stretch;">
         <input type="text" id="licenseKey" name="license_key"
-          placeholder="e.g. PRO-M-ABC12345-XYZ789-A1B2  or  xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx (Gumroad key)"
+          placeholder="Paste Gumroad license key: XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX"
           required autocomplete="off" spellcheck="false"
-          style="flex:1;min-width:280px;background:var(--dim);border:1px solid var(--border);border-radius:8px;padding:14px 16px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:12px;">
+          style="flex:1;min-width:280px;background:var(--dim);border:1px solid var(--border);border-radius:8px;padding:14px 16px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:1px;">
         <button type="submit" class="btn btn-amber" id="activateBtn" style="min-width:140px;">
           <span id="activateBtnText">Activate</span>
         </button>
@@ -242,11 +232,10 @@ try {
 
       <div style="margin-top:16px;padding:14px 18px;background:var(--dim);border-radius:8px;border-left:3px solid var(--a2);">
         <div style="font-size:12px;color:var(--muted);line-height:1.9;">
-          <strong style="color:var(--text);display:block;margin-bottom:6px;">Where is my license key?</strong>
-          After purchasing on Gumroad, check your email for a message from Gumroad or from us.<br>
-          Two formats are accepted:<br>
-          &nbsp;&nbsp;• <strong style="color:var(--text);">System key</strong> (sent in our email): <code style="color:var(--a2);background:var(--bg);padding:2px 8px;border-radius:4px;font-size:10px;">PRO-M-XXXXXXXX-XXXXXXXX-XXXX</code><br>
-          &nbsp;&nbsp;• <strong style="color:var(--text);">Gumroad key</strong> (from Gumroad email): <code style="color:var(--a1);background:var(--bg);padding:2px 8px;border-radius:4px;font-size:10px;">xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx</code>
+          <strong style="color:var(--text);display:block;margin-bottom:6px;">Where to find your license key?</strong>
+          After purchasing on Gumroad, check your email for the Gumroad receipt.<br>
+          The license key is in the email, format: <code style="color:var(--a2);background:var(--bg);padding:2px 8px;border-radius:4px;font-size:10px;">XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX</code><br><br>
+          <strong style="color:var(--text);">Also accepted:</strong> System key sent by us via email (format: <code style="color:var(--a1);background:var(--bg);padding:2px 8px;border-radius:4px;font-size:10px;">PRO-M-XXXXXXXX-XXXX</code>)
         </div>
       </div>
 

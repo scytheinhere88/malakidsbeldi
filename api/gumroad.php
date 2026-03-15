@@ -49,16 +49,136 @@ if ($isWebhook) {
 
 // ============================================
 // PROCESS DATA
-// Gumroad Ping sends POST fields (same as webhook)
+// Gumroad Ping & resource_subscriptions send POST fields
 // ============================================
 $data          = $_POST;
 $sale_id       = $data['sale_id'] ?? '';
-$email         = strtolower(trim($data['email'] ?? ''));
+$email         = strtolower(trim($data['email'] ?? ($data['user_email'] ?? '')));
 $product_id    = $data['product_id'] ?? '';
 $product_name  = $data['product_name'] ?? '';
 $license_key   = $data['license_key'] ?? '';
 $refunded      = filter_var($data['refunded'] ?? false, FILTER_VALIDATE_BOOLEAN);
 $chargebacked  = filter_var($data['chargebacked'] ?? false, FILTER_VALIDATE_BOOLEAN);
+
+// resource_subscriptions specific fields
+$resourceName    = $data['resource_name'] ?? '';
+$subscriptionId  = $data['subscription_id'] ?? '';
+$cancelledAt     = $data['cancelled_at'] ?? null;
+$endedAt         = $data['ended_at'] ?? null;
+$endedReason     = $data['ended_reason'] ?? null;
+
+// ============================================
+// SUBSCRIPTION CANCELLATION HANDLER
+// Triggered by resource_subscriptions: "cancellation"
+// ============================================
+if (!empty($data['cancelled']) && filter_var($data['cancelled'], FILTER_VALIDATE_BOOLEAN)) {
+    $pdo         = db();
+    $auditLogger = new AuditLogger($pdo);
+    $emailSystem = new EmailSystem($pdo);
+
+    try {
+        $cancelEmail = $email ?: strtolower(trim($data['user_email'] ?? ''));
+        $userStmt = $pdo->prepare("SELECT id, name, plan FROM users WHERE email = ? LIMIT 1");
+        $userStmt->execute([$cancelEmail]);
+        $cancelledUser = $userStmt->fetch();
+
+        if ($cancelledUser) {
+            $oldPlan = $cancelledUser['plan'];
+            $cancelEffectiveAt = $cancelledAt ? date('Y-m-d H:i:s', strtotime($cancelledAt)) : null;
+
+            if ($cancelEffectiveAt && strtotime($cancelEffectiveAt) > time()) {
+                // Future cancellation — keep plan until end date, just mark it
+                $pdo->prepare("UPDATE users SET subscription_cancelled_at=? WHERE id=?")
+                    ->execute([$cancelEffectiveAt, $cancelledUser['id']]);
+                error_log("Gumroad cancellation: User {$cancelEmail} subscription will end at {$cancelEffectiveAt}");
+            } else {
+                // Immediate — downgrade now
+                $pdo->beginTransaction();
+                try {
+                    if ($license_key) {
+                        $pdo->prepare("UPDATE licenses SET status='revoked', revoked_at=NOW() WHERE gumroad_license=? OR license_key=?")
+                            ->execute([$license_key, $license_key]);
+                    }
+                    $pdo->prepare("UPDATE users SET plan='free', billing_cycle='none', plan_expires_at=NULL WHERE id=?")
+                        ->execute([$cancelledUser['id']]);
+                    $pdo->commit();
+                } catch (Exception $txEx) {
+                    $pdo->rollBack();
+                    throw $txEx;
+                }
+
+                $auditLogger->setUserId($cancelledUser['id']);
+                $auditLogger->logPlanChange($oldPlan, 'free', 'gumroad_cancellation');
+                error_log("Gumroad cancellation: Downgraded {$cancelEmail} from {$oldPlan} to free");
+            }
+        } else {
+            error_log("Gumroad cancellation: User not found for email {$cancelEmail}");
+        }
+    } catch (Exception $e) {
+        error_log("Gumroad cancellation handler error: " . $e->getMessage());
+    }
+
+    http_response_code(200);
+    exit('ok');
+}
+
+// ============================================
+// SUBSCRIPTION ENDED HANDLER
+// Triggered by resource_subscriptions: "subscription_ended"
+// Reason: failed_payment, cancelled, fixed_subscription_period_ended
+// ============================================
+if (!empty($endedAt) || $resourceName === 'subscription_ended') {
+    $pdo         = db();
+    $auditLogger = new AuditLogger($pdo);
+    $emailSystem = new EmailSystem($pdo);
+
+    try {
+        $endEmail = $email ?: strtolower(trim($data['user_email'] ?? ''));
+        $userStmt = $pdo->prepare("SELECT id, name, plan FROM users WHERE email = ? LIMIT 1");
+        $userStmt->execute([$endEmail]);
+        $endedUser = $userStmt->fetch();
+
+        if ($endedUser) {
+            $oldPlan = $endedUser['plan'];
+
+            $pdo->beginTransaction();
+            try {
+                if ($license_key) {
+                    $pdo->prepare("UPDATE licenses SET status='revoked', revoked_at=NOW() WHERE gumroad_license=? OR license_key=?")
+                        ->execute([$license_key, $license_key]);
+                }
+                $pdo->prepare("UPDATE users SET plan='free', billing_cycle='none', plan_expires_at=NULL WHERE id=?")
+                    ->execute([$endedUser['id']]);
+                $pdo->commit();
+            } catch (Exception $txEx) {
+                $pdo->rollBack();
+                throw $txEx;
+            }
+
+            $auditLogger->setUserId($endedUser['id']);
+            $auditLogger->logPlanChange($oldPlan, 'free', 'gumroad_subscription_ended_' . ($endedReason ?? 'unknown'));
+            error_log("Gumroad subscription_ended: Downgraded {$endEmail} from {$oldPlan} to free, reason: " . ($endedReason ?? 'unknown'));
+
+            try {
+                $emailSystem->sendFromTemplate('plan_expired', $endEmail, $endedUser['name'], [
+                    'user_name'   => $endedUser['name'],
+                    'plan_name'   => ucfirst($oldPlan) . ' Plan',
+                    'expiry_date' => date('F d, Y'),
+                    'reason'      => $endedReason ?? 'subscription_ended'
+                ], $endedUser['id'], 2);
+            } catch (Exception $emailEx) {
+                error_log("Gumroad subscription_ended: Failed to send email - " . $emailEx->getMessage());
+            }
+        } else {
+            error_log("Gumroad subscription_ended: User not found for email {$endEmail}");
+        }
+    } catch (Exception $e) {
+        error_log("Gumroad subscription_ended handler error: " . $e->getMessage());
+    }
+
+    http_response_code(200);
+    exit('ok');
+}
 
 // ============================================
 // REFUND / CHARGEBACK HANDLER
