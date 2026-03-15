@@ -4,7 +4,7 @@ class PlanManagement {
     private PDO $db;
 
     const GRACE_PERIOD_DAYS = 7;
-    const PLAN_HIERARCHY = ['free' => 0, 'starter' => 1, 'pro' => 2, 'agency' => 3];
+    const PLAN_HIERARCHY = ['free' => 0, 'pro' => 1, 'platinum' => 2, 'lifetime' => 3];
 
     public function __construct(PDO $db) {
         $this->db = $db;
@@ -193,9 +193,23 @@ class PlanManagement {
                 UPDATE users
                 SET plan = ?,
                     plan_status = 'active',
-                    plan_expires_at = NULL
+                    plan_expires_at = NULL,
+                    billing_cycle = 'none'
                 WHERE id = ?
             ")->execute([$toPlan, $userId]);
+
+            // Revoke addons when downgrading to free
+            if ($toPlan === 'free') {
+                $this->db->prepare("DELETE FROM user_addons WHERE user_id = ?")
+                    ->execute([$userId]);
+            }
+
+            // Mark user's active licenses as expired
+            $this->db->prepare("
+                UPDATE licenses
+                SET status = 'expired'
+                WHERE user_id = ? AND status = 'active' AND (expires_at IS NOT NULL AND expires_at < NOW())
+            ")->execute([$userId]);
 
             $this->logPlanChange($userId, $fromPlan, $toPlan, 'downgrade', 0, 0, 'grace_period_expired');
 
@@ -242,11 +256,14 @@ class PlanManagement {
             $now = time();
             $daysRemaining = max(0, ceil(($expiresAt - $now) / 86400));
 
-            $planPrices = [
+            $planPrices = defined('PLAN_DATA') ? array_combine(
+                array_keys(PLAN_DATA),
+                array_column(array_values(PLAN_DATA), 'price')
+            ) : [
                 'free' => 0,
-                'starter' => 9,
                 'pro' => 29,
-                'agency' => 99
+                'platinum' => 79,
+                'lifetime' => 299
             ];
 
             $fromPrice = $planPrices[$fromPlan] ?? 0;
@@ -388,7 +405,7 @@ class PlanManagement {
             return ['allowed' => false, 'reason' => 'User not found'];
         }
 
-        $currentPierarchy = self::PLAN_HIERARCHY[$userData['plan']] ?? 0;
+        $currentHierarchy = self::PLAN_HIERARCHY[$userData['plan']] ?? 0;
         $targetHierarchy = self::PLAN_HIERARCHY[$targetPlan] ?? 0;
 
         if ($targetHierarchy <= $currentHierarchy) {

@@ -50,21 +50,22 @@ if ($method === 'POST') {
         if ($result['valid']) {
             echo json_encode([
                 'success' => true,
-                'valid' => true,
+                'valid'   => true,
                 'license' => [
                     'product_name' => $result['license']['product_name'],
                     'product_type' => $result['license']['product_type'],
-                    'status' => $result['license']['status'],
-                    'created_at' => $result['license']['created_at'],
-                    'expires_at' => $result['license']['expires_at'],
+                    'status'       => $result['license']['status'],
+                    'created_at'   => $result['license']['created_at'],
+                    'expires_at'   => $result['license']['expires_at'],
                     'activated_at' => $result['license']['activated_at']
                 ]
             ]);
         } else {
+            http_response_code(400);
             echo json_encode([
-                'success' => true,
-                'valid' => false,
-                'error' => $result['error']
+                'success' => false,
+                'valid'   => false,
+                'error'   => $result['error']
             ]);
         }
     } catch (Exception $e) {

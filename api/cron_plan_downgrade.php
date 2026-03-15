@@ -47,11 +47,22 @@ try {
     $auditLogger = new AuditLogger($db);
 
     $usersToCheck = $db->query("
-        SELECT id, username, email, plan, plan_expires_at, plan_status
+        SELECT id, name, email, plan, plan_expires_at, plan_status
         FROM users
         WHERE plan != 'free'
+        AND billing_cycle != 'lifetime'
         AND (plan_expires_at <= NOW() OR plan_status = 'grace_period')
     ")->fetchAll(PDO::FETCH_ASSOC);
+
+    // Mark expired active licenses
+    $db->exec("
+        UPDATE licenses
+        SET status = 'expired'
+        WHERE status = 'active'
+        AND expires_at IS NOT NULL
+        AND expires_at < NOW()
+    ");
+    logMessage("Marked expired licenses in licenses table");
 
     logMessage("Found " . count($usersToCheck) . " users with expired plans or in grace period");
 
@@ -114,8 +125,8 @@ try {
 
                         // Send email notification about grace period
                         $emailSystem = new EmailSystem($db);
-                        $emailSystem->sendFromTemplate('plan_expiry_1day', $user['email'], $user['name'], [
-                            'user_name' => $user['name'],
+                        $emailSystem->sendFromTemplate('plan_expiry_1day', $user['email'], $user['name'] ?? $user['email'], [
+                            'user_name' => $user['name'] ?? $user['email'],
                             'plan_name' => ucfirst($user['plan']) . ' Plan',
                             'expiry_date' => date('F d, Y', strtotime($user['plan_expires_at']))
                         ], $user['id'], 3);

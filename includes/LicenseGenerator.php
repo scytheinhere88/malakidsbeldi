@@ -340,9 +340,10 @@ class LicenseGenerator
         $this->applyLicenseToUser($userId, $license);
 
         return [
-            'success' => true,
-            'message' => 'License activated successfully',
-            'product' => $license['product_name']
+            'success'            => true,
+            'message'            => 'License activated successfully',
+            'product'            => $license['product_name'],
+            'system_license_key' => $licenseKey
         ];
     }
 
