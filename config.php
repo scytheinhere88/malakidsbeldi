@@ -99,6 +99,16 @@ define('FORCE_HTTPS', filter_var($_ENV['FORCE_HTTPS'] ?? 'true', FILTER_VALIDATE
 define('TRUST_PROXY', filter_var($_ENV['TRUST_PROXY'] ?? 'false', FILTER_VALIDATE_BOOLEAN));
 
 // ============================================
+// SECURITY HEADERS — applied to ALL responses (after constants are defined)
+// ============================================
+if (file_exists(__DIR__ . '/includes/SecurityHeaders.php')) {
+    require_once __DIR__ . '/includes/SecurityHeaders.php';
+    if (!headers_sent()) {
+        SecurityHeaders::apply();
+    }
+}
+
+// ============================================
 // PAYMENT GATEWAYS
 // ============================================
 define('GUMROAD_WEBHOOK_SECRET', $_ENV['GUMROAD_WEBHOOK_SECRET'] ?? '');
@@ -281,8 +291,9 @@ function ss(){
     return;
   }
 
-  if(file_exists(__DIR__.'/includes/SecurityHeaders.php')){
-    require_once __DIR__.'/includes/SecurityHeaders.php';
+  // SecurityHeaders::apply() is already called at config load time.
+  // Only apply here for session cookie settings which require an active session context.
+  if(class_exists('SecurityHeaders') && !headers_sent()){
     SecurityHeaders::apply();
   }
 
