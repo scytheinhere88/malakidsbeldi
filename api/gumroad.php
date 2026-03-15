@@ -133,47 +133,17 @@ $cycle = 'none';
 $months = 1;
 $amount = 0;
 
-// Map product_id/permalink to plans
-// Supports both product_name (Gumroad title) and permalink matching
-// These match the exact permalinks configured in Gumroad dashboard
-$productMap = [
-    // Main Plans - Monthly (via permalink)
-    'pro-monthly-plan' => ['plan' => 'pro', 'cycle' => 'monthly', 'months' => 1],
-    'platinum-monthly-plan' => ['plan' => 'platinum', 'cycle' => 'monthly', 'months' => 1],
-
-    // Main Plans - Yearly (via permalink)
-    'pro-yearly-plan' => ['plan' => 'pro', 'cycle' => 'annual', 'months' => 12],
-    'platinum-yearly-plan' => ['plan' => 'platinum', 'cycle' => 'annual', 'months' => 12],
-
-    // Lifetime (via permalink)
-    'lifetime-access-plan' => ['plan' => 'lifetime', 'cycle' => 'lifetime', 'months' => 9999],
-
-    // Add-ons - Individual (via permalink)
-    'csv-generator-addon' => ['plan' => 'pro', 'cycle' => 'addon', 'months' => 1, 'addon' => 'csv-generator-pro'],
-    'zip-manager-addon' => ['plan' => 'pro', 'cycle' => 'addon', 'months' => 1, 'addon' => 'zip-manager'],
-    'copy-rename-addon' => ['plan' => 'pro', 'cycle' => 'addon', 'months' => 1, 'addon' => 'copy-rename'],
-
-    // Add-ons - Bundles (via permalink)
-    'ai-autopilot-bundle' => ['plan' => 'pro', 'cycle' => 'addon', 'months' => 1, 'addon' => 'autopilot'],
-    'all-in-one-bundle' => ['plan' => 'platinum', 'cycle' => 'addon', 'months' => 3, 'addon' => 'premium-bundle'],
-
-    // Legacy product names (fallback for existing webhooks)
-    'Pro Automation Plan' => ['plan' => 'pro', 'cycle' => 'monthly', 'months' => 1],
-    'Platinum Agency Plan' => ['plan' => 'platinum', 'cycle' => 'monthly', 'months' => 1],
-    'Pro Automation Yearly' => ['plan' => 'pro', 'cycle' => 'annual', 'months' => 12],
-    'Platinum Agency Yearly' => ['plan' => 'platinum', 'cycle' => 'annual', 'months' => 12],
-    'Lifetime Unlimited' => ['plan' => 'lifetime', 'cycle' => 'lifetime', 'months' => 9999],
-];
+// Resolve product using centralized map from config.php
+$resolved = resolveGumroadProduct($product_identifier)
+    ?? resolveGumroadProduct($product_id)
+    ?? resolveGumroadProduct($product_name);
 
 $addonSlug = null;
-foreach ($productMap as $key => $config) {
-    if (strpos($product_identifier, $key) !== false) {
-        $plan = $config['plan'];
-        $cycle = $config['cycle'];
-        $months = $config['months'];
-        $addonSlug = $config['addon'] ?? null;
-        break;
-    }
+if ($resolved) {
+    $plan      = $resolved['plan'];
+    $cycle     = $resolved['cycle'];
+    $months    = $resolved['months'];
+    $addonSlug = $resolved['addon'] ?? null;
 }
 
 if ($plan === 'free') {

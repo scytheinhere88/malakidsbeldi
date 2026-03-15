@@ -225,135 +225,141 @@ try {
       <div class="card-title">🔑 Activate License Key</div>
 
       <p style="font-size:14px;color:var(--muted);margin-bottom:20px;line-height:1.6;">
-        Activate your product by entering your license key below. Check your purchase confirmation email for your unique license key.
+        Enter the license key from your Gumroad purchase confirmation email to activate your plan or add-on.
       </p>
 
       <div id="activationMessage"></div>
 
       <form id="activateLicenseForm" style="display:flex;gap:12px;flex-wrap:wrap;align-items:stretch;">
-        <input type="text" id="licenseKey" name="license_key" placeholder="Enter your license key" required style="flex:1;min-width:280px;background:var(--dim);border:1px solid var(--border);border-radius:8px;padding:14px 16px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:13px;">
+        <input type="text" id="licenseKey" name="license_key"
+          placeholder="e.g. PRO-M-ABC12345-XYZ789-A1B2  or  xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+          required autocomplete="off" spellcheck="false"
+          style="flex:1;min-width:280px;background:var(--dim);border:1px solid var(--border);border-radius:8px;padding:14px 16px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:12px;">
         <button type="submit" class="btn btn-amber" id="activateBtn" style="min-width:140px;">
           <span id="activateBtnText">Activate</span>
         </button>
       </form>
 
-      <!-- Show user's licenses -->
-      <div id="userLicenses" style="margin-top:24px;"></div>
-
-      <div style="margin-top:20px;padding:16px 20px;background:var(--dim);border-radius:8px;border-left:3px solid var(--a2);">
-        <div style="font-size:12px;color:var(--muted);line-height:1.8;">
-          <strong style="color:var(--text);display:block;margin-bottom:8px;">📌 How to find your license key:</strong>
-          • Check your purchase confirmation email<br>
-          • Format example: <code style="color:var(--a2);background:var(--bg);padding:2px 8px;border-radius:4px;font-size:11px;">PRO-M-ABC12345-XYZ789-A1B2</code><br>
-          • Works for all products (plans, add-ons, bundles)
+      <div style="margin-top:16px;padding:14px 18px;background:var(--dim);border-radius:8px;border-left:3px solid var(--a2);">
+        <div style="font-size:12px;color:var(--muted);line-height:1.9;">
+          <strong style="color:var(--text);display:block;margin-bottom:6px;">Where is my license key?</strong>
+          After purchasing on Gumroad, check your email for a message from Gumroad or from us.<br>
+          Two formats are accepted:<br>
+          &nbsp;&nbsp;• <strong style="color:var(--text);">System key</strong> (sent in our email): <code style="color:var(--a2);background:var(--bg);padding:2px 8px;border-radius:4px;font-size:10px;">PRO-M-XXXXXXXX-XXXXXXXX-XXXX</code><br>
+          &nbsp;&nbsp;• <strong style="color:var(--text);">Gumroad key</strong> (from Gumroad email): <code style="color:var(--a1);background:var(--bg);padding:2px 8px;border-radius:4px;font-size:10px;">xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx</code>
         </div>
       </div>
 
+      <!-- Show user's licenses -->
+      <div id="userLicenses" style="margin-top:24px;"></div>
+
       <p style="font-size:12px;color:var(--muted);margin-top:16px;">
-        Need help? <a href="<?= SUPPORT_TELEGRAM_URL ?>" target="_blank" style="color:var(--a2);text-decoration:none;font-weight:600;">Contact Support</a>
+        Can't find your key? <a href="<?= htmlspecialchars(SUPPORT_TELEGRAM_URL) ?>" target="_blank" style="color:var(--a2);text-decoration:none;font-weight:600;">Contact Support</a>
       </p>
     </div>
 
     <script>
     async function loadUserLicenses() {
       try {
-        const response = await fetch('/api/verify_license.php?t=' + Date.now(), {
-          method: 'GET',
-          credentials: 'include'
+        const res = await fetch('/api/verify_license.php?t=' + Date.now(), {
+          method: 'GET', credentials: 'include'
         });
+        const result = await res.json();
+        if (!result.success || !result.licenses || result.licenses.length === 0) return;
 
-        const result = await response.json();
+        const licensesDiv = document.getElementById('userLicenses');
+        let html = '<div style="border-top:1px solid var(--border);padding-top:24px;margin-top:24px;">';
+        html += '<div style="font-family:\'Syne\',sans-serif;font-size:16px;font-weight:700;color:var(--text);margin-bottom:16px;">Your Licenses</div>';
+        html += '<div style="display:grid;gap:12px;">';
 
-        if (result.success && result.licenses && result.licenses.length > 0) {
-          const licensesDiv = document.getElementById('userLicenses');
-          let html = '<div style="border-top:1px solid var(--border);padding-top:24px;margin-top:24px;">';
-          html += '<div style="font-family:\'Syne\',sans-serif;font-size:16px;font-weight:700;color:var(--text);margin-bottom:16px;">Your Active Licenses</div>';
-          html += '<div style="display:grid;gap:12px;">';
+        result.licenses.forEach(license => {
+          const isActive = license.status === 'active';
+          const statusColor = isActive ? 'var(--ok)' : license.status === 'revoked' ? 'var(--err)' : 'var(--muted)';
+          const statusIcon  = isActive ? '✅' : license.status === 'revoked' ? '🚫' : '⏳';
+          const keyDisplay  = license.license_key || '—';
+          const createdDate = new Date(license.created_at).toLocaleDateString('en-US', {month:'short',day:'numeric',year:'numeric'});
+          const expiryText  = license.expires_at
+            ? 'Expires: ' + new Date(license.expires_at).toLocaleDateString('en-US', {month:'short',day:'numeric',year:'numeric'})
+            : 'Lifetime Access';
 
-          result.licenses.forEach(license => {
-            const statusColor = license.status === 'active' ? 'var(--ok)' : 'var(--muted)';
-            const statusIcon = license.status === 'active' ? '✅' : '⏳';
-
-            html += `
-              <div style="background:var(--dim);border-radius:10px;padding:16px 20px;border-left:3px solid ${statusColor};">
-                <div style="display:flex;justify-content:space-between;align-items:start;flex-wrap:wrap;gap:12px;">
-                  <div style="flex:1;min-width:220px;">
-                    <div style="font-family:'Syne',sans-serif;font-size:14px;font-weight:700;color:var(--text);margin-bottom:8px;">
-                      ${statusIcon} ${license.product_name}
-                    </div>
-                    <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:${statusColor};background:var(--bg);padding:8px 12px;border-radius:6px;display:inline-block;margin-bottom:8px;">
-                      ${license.license_key}
-                    </div>
-                    <div style="font-size:11px;color:var(--muted);">
-                      ${license.status === 'active' ? 'Activated' : 'Purchased'}: ${new Date(license.created_at).toLocaleDateString('en-US', {month: 'short', day: 'numeric', year: 'numeric'})}
-                      ${license.expires_at ? ' • Expires: ' + new Date(license.expires_at).toLocaleDateString('en-US', {month: 'short', day: 'numeric', year: 'numeric'}) : ' • Lifetime Access'}
-                    </div>
+          html += `
+            <div style="background:var(--dim);border-radius:10px;padding:16px 20px;border-left:3px solid ${statusColor};">
+              <div style="display:flex;justify-content:space-between;align-items:start;flex-wrap:wrap;gap:12px;">
+                <div style="flex:1;min-width:220px;">
+                  <div style="font-family:'Syne',sans-serif;font-size:14px;font-weight:700;color:var(--text);margin-bottom:8px;">
+                    ${statusIcon} ${license.product_name || 'License'}
                   </div>
-                  <div style="padding:6px 12px;background:${license.status === 'active' ? 'rgba(0,212,170,0.15)' : 'var(--bg)'};border:1px solid ${license.status === 'active' ? 'var(--ok)' : 'var(--border)'};border-radius:6px;font-size:11px;font-weight:600;color:${statusColor};text-transform:uppercase;">
-                    ${license.status}
+                  <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:${statusColor};background:var(--bg);padding:7px 12px;border-radius:6px;display:inline-block;margin-bottom:8px;word-break:break-all;">
+                    ${keyDisplay}
+                  </div>
+                  <div style="font-size:11px;color:var(--muted);">
+                    ${isActive ? 'Activated' : 'Purchased'}: ${createdDate} &nbsp;•&nbsp; ${expiryText}
                   </div>
                 </div>
+                <div style="padding:5px 10px;background:${isActive?'rgba(0,212,170,0.12)':'var(--bg)'};border:1px solid ${statusColor};border-radius:6px;font-size:10px;font-weight:700;color:${statusColor};text-transform:uppercase;white-space:nowrap;">
+                  ${license.status}
+                </div>
               </div>
-            `;
-          });
+            </div>`;
+        });
 
-          html += '</div></div>';
-          licensesDiv.innerHTML = html;
-        }
-      } catch (error) {
-        console.error('Failed to load licenses:', error);
+        html += '</div></div>';
+        licensesDiv.innerHTML = html;
+      } catch (err) {
+        console.error('Failed to load licenses:', err);
       }
     }
 
     document.getElementById('activateLicenseForm').addEventListener('submit', async (e) => {
       e.preventDefault();
 
-      const btn = document.getElementById('activateBtn');
-      const btnText = document.getElementById('activateBtnText');
-      const messageDiv = document.getElementById('activationMessage');
+      const btn        = document.getElementById('activateBtn');
+      const btnText    = document.getElementById('activateBtnText');
+      const msgDiv     = document.getElementById('activationMessage');
       const licenseKey = document.getElementById('licenseKey').value.trim();
 
       if (!licenseKey) {
-        messageDiv.innerHTML = '<div class="err-box">⚠ Please enter a license key</div>';
+        msgDiv.innerHTML = '<div class="err-box">Please enter a license key.</div>';
         return;
       }
 
-      btn.disabled = true;
+      btn.disabled   = true;
       btnText.textContent = 'Activating...';
-      messageDiv.innerHTML = '';
+      msgDiv.innerHTML    = '';
 
       try {
-        const response = await fetch('/api/verify_license.php?t=' + Date.now(), {
-          method: 'PUT',
+        const res = await fetch('/api/activate_license.php', {
+          method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
           body: JSON.stringify({ license_key: licenseKey })
         });
 
-        const result = await response.json();
+        const result = await res.json();
 
         if (result.success) {
-          let systemKeyInfo = '';
+          let sysKeyBox = '';
           if (result.system_license_key) {
-            systemKeyInfo = `<div style="margin-top:14px;padding:14px;background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.3);border-radius:8px;">
-              <div style="font-size:11px;color:var(--a1);font-weight:700;margin-bottom:8px;">Your System License Key</div>
-              <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#fff;background:var(--dim);padding:10px 12px;border-radius:6px;word-break:break-all;border:1px solid var(--border);">${result.system_license_key}</div>
-              <div style="font-size:11px;color:var(--muted);margin-top:8px;">Save this key for your records. You can use either key for future access.</div>
-            </div>`;
+            sysKeyBox = `
+              <div style="margin-top:12px;padding:12px 16px;background:rgba(251,191,36,.06);border:1px solid rgba(251,191,36,.25);border-radius:8px;">
+                <div style="font-size:10px;color:var(--a1);font-weight:700;margin-bottom:6px;text-transform:uppercase;letter-spacing:1px;">Your System License Key — Save This!</div>
+                <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#fff;background:var(--dim);padding:10px 12px;border-radius:6px;word-break:break-all;border:1px solid var(--border);">${result.system_license_key}</div>
+                <div style="font-size:10px;color:var(--muted);margin-top:6px;">Both your Gumroad key and this system key will work for future activations.</div>
+              </div>`;
           }
-          messageDiv.innerHTML = `<div class="info-box" style="background:rgba(0,212,170,.08);border-color:rgba(0,212,170,.3);">
-            ✅ ${result.message || 'License activated successfully!'}<br>
-            <span style="font-size:13px;margin-top:6px;display:block;">Product: <strong>${result.product}</strong></span>
-            ${systemKeyInfo}
-          </div>`;
-          setTimeout(() => location.reload(), 2500);
+          msgDiv.innerHTML = `
+            <div class="info-box" style="background:rgba(0,212,170,.07);border-color:rgba(0,212,170,.3);">
+              License activated! <strong>${result.product_name || ''}</strong> plan is now active.
+              ${sysKeyBox}
+            </div>`;
+          setTimeout(() => location.reload(), 3000);
         } else {
-          messageDiv.innerHTML = `<div class="err-box">${result.error || 'Activation failed. Please try again.'}</div>`;
+          msgDiv.innerHTML = `<div class="err-box">${result.error || 'Activation failed. Please check your key and try again.'}</div>`;
           btn.disabled = false;
           btnText.textContent = 'Activate';
         }
-      } catch (error) {
-        messageDiv.innerHTML = '<div class="err-box">Network error. Please check your connection and try again.</div>';
+      } catch (err) {
+        msgDiv.innerHTML = '<div class="err-box">Network error. Check your connection and try again.</div>';
         btn.disabled = false;
         btnText.textContent = 'Activate';
       }

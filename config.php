@@ -173,6 +173,67 @@ const ADDON_DATA = [
   ],
 ];
 
+// ============================================
+// GUMROAD PRODUCT MAP — SINGLE SOURCE OF TRUTH
+// Maps Gumroad permalink/product_id → plan config
+// Used by: gumroad.php, activate_license.php, LicenseGenerator.php
+// ============================================
+const GUMROAD_PRODUCT_MAP = [
+    // --- Permalinks (from Gumroad dashboard) ---
+    'pro-monthly-plan'      => ['plan'=>'pro',      'cycle'=>'monthly',  'months'=>1,    'slug'=>'pro-monthly-plan'],
+    'platinum-monthly-plan' => ['plan'=>'platinum',  'cycle'=>'monthly',  'months'=>1,    'slug'=>'platinum-monthly-plan'],
+    'pro-yearly-plan'       => ['plan'=>'pro',      'cycle'=>'annual',   'months'=>12,   'slug'=>'pro-yearly-plan'],
+    'platinum-yearly-plan'  => ['plan'=>'platinum',  'cycle'=>'annual',   'months'=>12,   'slug'=>'platinum-yearly-plan'],
+    'lifetime-access-plan'  => ['plan'=>'lifetime',  'cycle'=>'lifetime', 'months'=>9999, 'slug'=>'lifetime-access-plan'],
+    // --- Add-ons ---
+    'csv-generator-addon'   => ['plan'=>'pro',      'cycle'=>'addon',    'months'=>0,    'slug'=>'csv-generator-addon',  'addon'=>'csv-generator-pro'],
+    'zip-manager-addon'     => ['plan'=>'pro',      'cycle'=>'addon',    'months'=>0,    'slug'=>'zip-manager-addon',    'addon'=>'zip-manager'],
+    'copy-rename-addon'     => ['plan'=>'pro',      'cycle'=>'addon',    'months'=>0,    'slug'=>'copy-rename-addon',    'addon'=>'copy-rename'],
+    'ai-autopilot-bundle'   => ['plan'=>'pro',      'cycle'=>'addon',    'months'=>0,    'slug'=>'ai-autopilot-bundle',  'addon'=>'autopilot'],
+    'all-in-one-bundle'     => ['plan'=>'platinum',  'cycle'=>'addon',    'months'=>3,    'slug'=>'all-in-one-bundle',    'addon'=>'premium-bundle'],
+    // --- Legacy product names (fallback) ---
+    'Pro Automation Plan'       => ['plan'=>'pro',     'cycle'=>'monthly',  'months'=>1,    'slug'=>'pro-monthly-plan'],
+    'Platinum Agency Plan'      => ['plan'=>'platinum', 'cycle'=>'monthly',  'months'=>1,    'slug'=>'platinum-monthly-plan'],
+    'Pro Automation Yearly'     => ['plan'=>'pro',     'cycle'=>'annual',   'months'=>12,   'slug'=>'pro-yearly-plan'],
+    'Platinum Agency Yearly'    => ['plan'=>'platinum', 'cycle'=>'annual',   'months'=>12,   'slug'=>'platinum-yearly-plan'],
+    'Lifetime Unlimited'        => ['plan'=>'lifetime', 'cycle'=>'lifetime', 'months'=>9999, 'slug'=>'lifetime-access-plan'],
+];
+
+// Gumroad product_id (hash) → slug mapping
+// These are the internal Gumroad product IDs (from product URL/API)
+const GUMROAD_PRODUCT_ID_MAP = [
+    '5FemOQM3T5CTJcoxLBz9lA==' => 'pro-yearly-plan',
+    '7nQs3PYRz6Wc_zSwZEKmpA==' => 'pro-monthly-plan',
+    'QqX3oihPnbHi56uTL33xtw==' => 'platinum-yearly-plan',
+    'IsVC3Fk2_BX3eoeUBsmMHQ==' => 'platinum-monthly-plan',
+    'v7bddkeH5_4CZOF-rvdVYg==' => 'lifetime-access-plan',
+    'Rv3lRIIKoziiUCsyZT_8xg==' => 'ai-autopilot-bundle',
+    'n3naDS2BY26jmjBgz8iQkQ==' => 'csv-generator-addon',
+    'RnSl8osTSdq8ObTYFGuZWw==' => 'zip-manager-addon',
+    'qHSLgP8ikGyof7yc-PNU5Q==' => 'copy-rename-addon',
+    'BWD85J4nF3sS9ggXMdtTqQ==' => 'all-in-one-bundle',
+];
+
+// Resolve product identifier (permalink or product_id) → config
+function resolveGumroadProduct(string $identifier): ?array {
+    // Direct match (permalink)
+    if (isset(GUMROAD_PRODUCT_MAP[$identifier])) {
+        return GUMROAD_PRODUCT_MAP[$identifier];
+    }
+    // Try as Gumroad product_id hash
+    if (isset(GUMROAD_PRODUCT_ID_MAP[$identifier])) {
+        $slug = GUMROAD_PRODUCT_ID_MAP[$identifier];
+        return GUMROAD_PRODUCT_MAP[$slug] ?? null;
+    }
+    // Partial/substring match (legacy product names)
+    foreach (GUMROAD_PRODUCT_MAP as $key => $config) {
+        if (stripos($identifier, $key) !== false || stripos($key, $identifier) !== false) {
+            return $config;
+        }
+    }
+    return null;
+}
+
 // Helper: get all slugs unlocked by an addon purchase (bundle expands to 3)
 function getAddonSlugs(string $purchasedSlug): array {
     $a = ADDON_DATA[$purchasedSlug] ?? null;

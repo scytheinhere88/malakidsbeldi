@@ -58,12 +58,15 @@ class LicenseGenerator
                     sale_id VARCHAR(100) NOT NULL,
                     email VARCHAR(255) NOT NULL,
                     user_id INT NULL,
-                    status ENUM('active', 'inactive', 'revoked', 'expired') DEFAULT 'inactive',
+                    status ENUM('active', 'inactive', 'revoked', 'expired', 'cancelled') DEFAULT 'inactive',
+                    gumroad_license VARCHAR(100) NULL,
                     activated_at DATETIME NULL,
                     expires_at DATETIME NULL,
+                    revoked_at DATETIME NULL,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     metadata JSON NULL,
                     INDEX idx_license_key (license_key),
+                    INDEX idx_gumroad_license (gumroad_license),
                     INDEX idx_email (email),
                     INDEX idx_user_id (user_id),
                     INDEX idx_product_id (product_id),
@@ -72,6 +75,19 @@ class LicenseGenerator
                     ($usersTableExists ? ", FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL" : "") . "
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             ";
+
+            // Ensure existing tables have all required columns
+            $this->conn->exec("
+                ALTER TABLE licenses
+                    ADD COLUMN IF NOT EXISTS revoked_at DATETIME NULL,
+                    ADD COLUMN IF NOT EXISTS gumroad_license VARCHAR(100) NULL
+            ");
+
+            try {
+                $this->conn->exec("ALTER TABLE licenses ADD INDEX IF NOT EXISTS idx_gumroad_license (gumroad_license)");
+            } catch (Exception $idxEx) {
+                // Index may already exist
+            }
 
             $this->conn->exec($licensesTableSQL);
 
@@ -216,11 +232,17 @@ class LicenseGenerator
 
         $stmt = $this->conn->prepare("
             INSERT INTO licenses
-            (license_key, product_id, product_slug, sale_id, email, status, expires_at, metadata)
-            VALUES (?, ?, ?, ?, ?, 'inactive', ?, ?)
+            (license_key, product_id, product_slug, sale_id, email, status, expires_at, gumroad_license, metadata)
+            VALUES (?, ?, ?, ?, ?, 'inactive', ?, ?, ?)
+            ON DUPLICATE KEY UPDATE
+                product_id = VALUES(product_id),
+                expires_at = VALUES(expires_at),
+                gumroad_license = VALUES(gumroad_license),
+                metadata = VALUES(metadata)
         ");
 
         $metadataJson = json_encode($metadata);
+        $gumroadLicense = $metadata['gumroad_license'] ?? null;
 
         $stmt->execute([
             $licenseKey,
@@ -229,6 +251,7 @@ class LicenseGenerator
             $saleId,
             $email,
             $expiresAt,
+            $gumroadLicense,
             $metadataJson
         ]);
 
@@ -325,30 +348,22 @@ class LicenseGenerator
             return ['success' => false, 'error' => 'Server configuration error. Please contact support.'];
         }
 
-        $productMap = [
-            '5FemOQM3T5CTJcoxLBz9lA==' => ['plan' => 'pro', 'cycle' => 'yearly', 'name' => 'Pro Automation Yearly Plan'],
-            '7nQs3PYRz6Wc_zSwZEKmpA==' => ['plan' => 'pro', 'cycle' => 'monthly', 'name' => 'Pro Automation Monthly Plan'],
-            'QqX3oihPnbHi56uTL33xtw==' => ['plan' => 'platinum', 'cycle' => 'yearly', 'name' => 'Platinum Yearly Plan'],
-            'IsVC3Fk2_BX3eoeUBsmMHQ==' => ['plan' => 'platinum', 'cycle' => 'monthly', 'name' => 'Platinum Monthly Plan'],
-            'v7bddkeH5_4CZOF-rvdVYg==' => ['plan' => 'lifetime', 'cycle' => 'lifetime', 'name' => 'Lifetime Access Plan'],
-            'Rv3lRIIKoziiUCsyZT_8xg==' => ['plan' => 'pro', 'cycle' => 'lifetime', 'name' => 'AI Autopilot Bundle', 'addon' => 'autopilot'],
-            'n3naDS2BY26jmjBgz8iQkQ==' => ['plan' => 'basic', 'cycle' => 'lifetime', 'name' => 'CSV Generator Addon', 'addon' => 'csv-generator-pro'],
-            'RnSl8osTSdq8ObTYFGuZWw==' => ['plan' => 'basic', 'cycle' => 'lifetime', 'name' => 'Zip Manager Addon', 'addon' => 'zip-manager'],
-            'qHSLgP8ikGyof7yc-PNU5Q==' => ['plan' => 'basic', 'cycle' => 'lifetime', 'name' => 'Copy & Rename Addon', 'addon' => 'copy-rename'],
-            'BWD85J4nF3sS9ggXMdtTqQ==' => ['plan' => 'platinum', 'cycle' => 'lifetime', 'name' => 'All-In-One Bundle', 'addon' => 'premium-bundle']
+        // Build productMap from centralized config
+        $productIds = defined('GUMROAD_PRODUCT_ID_MAP') ? array_keys(GUMROAD_PRODUCT_ID_MAP) : [
+            '5FemOQM3T5CTJcoxLBz9lA==','7nQs3PYRz6Wc_zSwZEKmpA==',
+            'QqX3oihPnbHi56uTL33xtw==','IsVC3Fk2_BX3eoeUBsmMHQ==',
+            'v7bddkeH5_4CZOF-rvdVYg==','Rv3lRIIKoziiUCsyZT_8xg==',
+            'n3naDS2BY26jmjBgz8iQkQ==','RnSl8osTSdq8ObTYFGuZWw==',
+            'qHSLgP8ikGyof7yc-PNU5Q==','BWD85J4nF3sS9ggXMdtTqQ=='
         ];
 
         $verifyUrl = "https://api.gumroad.com/v2/licenses/verify";
 
         error_log("Verifying Gumroad license: " . substr($licenseKey, 0, 15) . "...");
-
-        $productIds = array_keys($productMap);
         $verifiedProduct = null;
         $lastError = '';
 
         foreach ($productIds as $productId) {
-            $config = $productMap[$productId];
-
             $postData = [
                 'product_id' => $productId,
                 'license_key' => $licenseKey,
@@ -388,10 +403,19 @@ class LicenseGenerator
 
             if ($result['success']) {
                 error_log("Gumroad license verified successfully for product: {$productId}");
+                // Resolve config from centralized map
+                $resolvedCfg = null;
+                if (function_exists('resolveGumroadProduct')) {
+                    $resolvedCfg = resolveGumroadProduct($productId);
+                }
+                if (!$resolvedCfg) {
+                    $slug = isset(GUMROAD_PRODUCT_ID_MAP[$productId]) ? GUMROAD_PRODUCT_ID_MAP[$productId] : null;
+                    $resolvedCfg = $slug && isset(GUMROAD_PRODUCT_MAP[$slug]) ? GUMROAD_PRODUCT_MAP[$slug] : null;
+                }
                 $verifiedProduct = [
                     'product_id' => $productId,
-                    'config' => $config,
-                    'purchase' => $result['purchase'] ?? null
+                    'config'     => $resolvedCfg ?? ['plan'=>'pro','cycle'=>'monthly','months'=>1,'slug'=>$productId,'name'=>'Unknown Product'],
+                    'purchase'   => $result['purchase'] ?? null
                 ];
                 break;
             } else {
@@ -419,12 +443,17 @@ class LicenseGenerator
             return ['success' => false, 'error' => 'This license has been charged back'];
         }
 
-        $config = $verifiedProduct['config'];
-        $purchase = $verifiedProduct['purchase'];
-        $saleId = $purchase['sale_id'] ?? '';
-        $purchaseEmail = $purchase['email'] ?? $email;
+        $config       = $verifiedProduct['config'];
+        $purchase     = $verifiedProduct['purchase'];
+        $saleId       = $purchase['sale_id'] ?? '';
+        $purchaseEmail= $purchase['email'] ?? $email;
 
-        $expiresAt = $config['cycle'] === 'lifetime' ? null : date('Y-m-d H:i:s', strtotime($config['cycle'] === 'monthly' ? '+30 days' : '+365 days'));
+        $cycle     = $config['cycle'];
+        $planName  = $config['name'] ?? ucfirst($config['plan']) . ' Plan';
+
+        $expiresAt = $cycle === 'lifetime' ? null : date('Y-m-d H:i:s', strtotime(
+            $cycle === 'monthly' ? '+30 days' : '+365 days'
+        ));
 
         $systemLicenseKey = $this->generateLicense($verifiedProduct['product_id'], $saleId, $purchaseEmail);
 
@@ -473,11 +502,11 @@ class LicenseGenerator
             $this->conn->commit();
 
             return [
-                'success' => true,
-                'message' => 'Gumroad license activated successfully! Your system license key: ' . $systemLicenseKey,
-                'product' => $config['name'],
+                'success'            => true,
+                'message'            => 'Gumroad license activated successfully! Your system license key: ' . $systemLicenseKey,
+                'product'            => $planName,
                 'system_license_key' => $systemLicenseKey,
-                'gumroad_license_key' => $licenseKey
+                'gumroad_license_key'=> $licenseKey
             ];
         } catch (Exception $e) {
             $this->conn->rollBack();
@@ -539,77 +568,37 @@ class LicenseGenerator
 
     private function getProductSlug($productId)
     {
-        $gumroadToSlugMap = [
-            '5FemOQM3T5CTJcoxLBz9lA==' => 'pro-yearly-plan',
-            'pro-automation-yearly-plan' => 'pro-yearly-plan',
-            'pro-yearly-plan' => 'pro-yearly-plan',
-            'pro-monthly-plan' => 'pro-monthly-plan',
-            'platinum-yearly-plan' => 'platinum-yearly-plan',
-            'platinum-monthly-plan' => 'platinum-monthly-plan',
-            'lifetime-access-plan' => 'lifetime-access-plan',
-        ];
-
-        if (isset($gumroadToSlugMap[$productId])) {
-            return $gumroadToSlugMap[$productId];
+        // Use centralized map from config.php
+        if (defined('GUMROAD_PRODUCT_ID_MAP') && isset(GUMROAD_PRODUCT_ID_MAP[$productId])) {
+            return GUMROAD_PRODUCT_ID_MAP[$productId];
         }
 
-        $stmt = $this->conn->prepare("
-            SELECT product_slug
-            FROM product_mappings
-            WHERE product_id = ?
-        ");
+        if (defined('GUMROAD_PRODUCT_MAP') && isset(GUMROAD_PRODUCT_MAP[$productId])) {
+            return GUMROAD_PRODUCT_MAP[$productId]['slug'];
+        }
 
+        $stmt = $this->conn->prepare("SELECT product_slug FROM product_mappings WHERE product_id = ?");
         $stmt->execute([$productId]);
         $result = $stmt->fetch(PDO::FETCH_ASSOC);
-
         return $result ? $result['product_slug'] : null;
     }
 
     private function getProductInfo($productId)
     {
-        $gumroadProductInfo = [
-            '5FemOQM3T5CTJcoxLBz9lA==' => [
-                'product_type' => 'subscription',
-                'billing_cycle' => 'yearly',
-                'plan_level' => 'pro'
-            ],
-            'pro-automation-yearly-plan' => [
-                'product_type' => 'subscription',
-                'billing_cycle' => 'yearly',
-                'plan_level' => 'pro'
-            ],
-            'pro-yearly-plan' => [
-                'product_type' => 'subscription',
-                'billing_cycle' => 'yearly',
-                'plan_level' => 'pro'
-            ],
-            'pro-monthly-plan' => [
-                'product_type' => 'subscription',
-                'billing_cycle' => 'monthly',
-                'plan_level' => 'pro'
-            ],
-            'platinum-yearly-plan' => [
-                'product_type' => 'subscription',
-                'billing_cycle' => 'yearly',
-                'plan_level' => 'platinum'
-            ],
-            'lifetime-access-plan' => [
-                'product_type' => 'lifetime',
-                'billing_cycle' => 'lifetime',
-                'plan_level' => 'lifetime'
-            ],
-        ];
-
-        if (isset($gumroadProductInfo[$productId])) {
-            return $gumroadProductInfo[$productId];
+        // Resolve via centralized map
+        if (function_exists('resolveGumroadProduct')) {
+            $slug = $this->getProductSlug($productId);
+            if ($slug && defined('GUMROAD_PRODUCT_MAP') && isset(GUMROAD_PRODUCT_MAP[$slug])) {
+                $cfg = GUMROAD_PRODUCT_MAP[$slug];
+                return [
+                    'product_type'  => in_array($cfg['cycle'], ['monthly','annual','yearly']) ? 'subscription' : ($cfg['cycle'] === 'lifetime' ? 'lifetime' : 'addon'),
+                    'billing_cycle' => $cfg['cycle'],
+                    'plan_level'    => $cfg['plan'],
+                ];
+            }
         }
 
-        $stmt = $this->conn->prepare("
-            SELECT *
-            FROM product_mappings
-            WHERE product_id = ?
-        ");
-
+        $stmt = $this->conn->prepare("SELECT * FROM product_mappings WHERE product_id = ?");
         $stmt->execute([$productId]);
         return $stmt->fetch(PDO::FETCH_ASSOC);
     }
