@@ -334,7 +334,7 @@ class LicenseGenerator
 
     private function isGumroadLicenseFormat($licenseKey)
     {
-        return preg_match('/^[A-F0-9]{8}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{12}$/i', $licenseKey);
+        return preg_match('/^[A-F0-9]{8}-[A-F0-9]{8}-[A-F0-9]{8}-[A-F0-9]{8}$/i', $licenseKey);
     }
 
     private function activateGumroadLicense($licenseKey, $userId, $email)
