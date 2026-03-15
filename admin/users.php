@@ -92,8 +92,8 @@ if($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['reset_pw_uid'])){
     $existsCheck = db()->prepare("SELECT id FROM users WHERE id=?"); $existsCheck->execute([$uid]);
     if(!$existsCheck->fetch()){
       $err='User not found.';
-    } elseif($uid && strlen($pass) >= 6){
-      $hash = password_hash($pass, PASSWORD_BCRYPT);
+    } elseif($uid && strlen($pass) >= 12){
+      $hash = password_hash($pass, PASSWORD_BCRYPT, ['cost' => 12]);
       db()->prepare("UPDATE users SET password=?, reset_token=NULL, reset_token_expires=NULL WHERE id=?")
         ->execute([$hash, $uid]);
       db()->prepare("INSERT INTO admin_notes(user_id,note,created_by)VALUES(?,?,'admin')")
@@ -105,7 +105,7 @@ if($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['reset_pw_uid'])){
 
       header('Location: /admin/users.php?edit='.$uid.'&msg='.urlencode('Password reset successfully.')); exit;
     } else {
-      $err = 'Password must be at least 6 characters.';
+      $err = 'Password must be at least 12 characters.';
     }
   }
 }
@@ -312,7 +312,7 @@ $users->execute($params);$ulist=$users->fetchAll();
     <form method="POST" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
       <input type="hidden" name="reset_pw_uid" value="<?= $edit['id'] ?>">
       <div class="form-field" style="flex:1;min-width:200px;margin:0;">
-        <label class="form-label">New Password (min 6 chars)</label>
+        <label class="form-label">New Password (min 12 chars)</label>
         <input type="text" name="new_password" placeholder="Enter new password..." style="font-family:'JetBrains Mono',monospace;">
       </div>
       <button type="submit" class="btn btn-danger btn-sm"

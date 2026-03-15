@@ -24,8 +24,14 @@ $pdo     = db();
 $monitor = new SystemMonitor($pdo);
 $limiter = new EnhancedRateLimiter($pdo, $monitor);
 
-$ip        = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
-$rateCheck = $limiter->check($ip, 'license_activation', 'free', $_SESSION['uid']);
+$ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+
+$planStmt = $pdo->prepare("SELECT plan FROM users WHERE id=? LIMIT 1");
+$planStmt->execute([$_SESSION['uid']]);
+$planRow  = $planStmt->fetch();
+$userTier = in_array($planRow['plan'] ?? 'free', ['free','pro','platinum','lifetime']) ? ($planRow['plan'] ?? 'free') : 'free';
+
+$rateCheck = $limiter->check($ip, 'license_activation', $userTier, $_SESSION['uid']);
 
 if (!$rateCheck['allowed']) {
     http_response_code(429);

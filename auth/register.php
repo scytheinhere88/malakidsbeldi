@@ -4,6 +4,8 @@ require_once dirname(__DIR__).'/includes/Analytics.php';
 require_once dirname(__DIR__).'/includes/EmailSystem.php';
 require_once dirname(__DIR__).'/includes/SecurityManager.php';
 require_once dirname(__DIR__).'/includes/AuditLogger.php';
+require_once dirname(__DIR__).'/includes/EnhancedRateLimiter.php';
+require_once dirname(__DIR__).'/includes/SystemMonitor.php';
 startSession();
 if(isLoggedIn()){header('Location:'.APP_URL.'/dashboard/');exit;}
 
@@ -14,7 +16,18 @@ $auditLogger = new AuditLogger(db());
 $err='';$suc='';
 if($_SERVER['REQUEST_METHOD']==='POST'){
   $analytics->trackEvent('registration_started', 'user', null);
-  if(!csrf_verify()){
+
+  $regIp = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+  $regMonitor = new SystemMonitor(db());
+  $regLimiter = new EnhancedRateLimiter(db(), $regMonitor);
+  $regRateCheck = $regLimiter->check($regIp, 'register', 'free', null);
+  if(!$regRateCheck['allowed']){
+    $err='Too many registration attempts. Please try again later.';
+    $auditLogger->log('registration_rate_limited', 'auth', 'failed', [
+      'target_type' => 'ip',
+      'target_id'   => $regIp
+    ]);
+  } elseif(!csrf_verify()){
     $err='Security validation failed. Please refresh and try again.';
   } else {
     $name=trim($_POST['name']??'');
@@ -78,7 +91,7 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
         ]);
       }
       else{
-        $hash=password_hash($pass,PASSWORD_BCRYPT);
+        $hash=password_hash($pass,PASSWORD_BCRYPT,['cost'=>12]);
         db()->prepare("INSERT INTO users(name,email,password,plan,created_at)VALUES(?,?,?,'free',NOW())")->execute([$name,$email,$hash]);
         $uid=db()->lastInsertId();
         $analytics->trackEvent('registration_completed', 'user', $uid, ['plan' => 'free']);

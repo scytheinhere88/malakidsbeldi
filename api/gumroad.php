@@ -495,7 +495,7 @@ try {
             ]);
         } else {
             $isNewUser = true;
-            $pass      = password_hash(bin2hex(random_bytes(16)), PASSWORD_BCRYPT);
+            $pass      = password_hash(bin2hex(random_bytes(16)), PASSWORD_BCRYPT, ['cost' => 12]);
             $pdo->prepare("INSERT INTO users(name, email, password, plan, billing_cycle, plan_expires_at, gumroad_license, gumroad_sale_id, created_at) VALUES(?,?,?,?,?,?,?,?,NOW())")
                 ->execute([$userName, $email, $pass, $plan, $cycle, $expires, $license_key, $sale_id]);
             $userId = (int)$pdo->lastInsertId();

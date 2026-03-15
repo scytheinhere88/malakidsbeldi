@@ -30,23 +30,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $error = "Invalid promo code data.";
             }
         } elseif ($action === 'fix_time') {
-            $id = $_POST['id'] ?? '';
-            if ($id) {
-                // Set valid_from to NOW minus 1 hour to ensure it's active
+            $id = (int)($_POST['id'] ?? 0);
+            if ($id > 0) {
                 $stmt = $db->prepare("UPDATE promo_codes SET valid_from = DATE_SUB(NOW(), INTERVAL 1 HOUR), updated_at = NOW() WHERE id = ?");
                 $stmt->execute([$id]);
                 $success = "Promo code time fixed! It should now be active.";
             }
         } elseif ($action === 'toggle') {
-            $id = $_POST['id'] ?? '';
-            if ($id) {
+            $id = (int)($_POST['id'] ?? 0);
+            if ($id > 0) {
                 $stmt = $db->prepare("UPDATE promo_codes SET is_active = NOT is_active, updated_at = now() WHERE id = ?");
                 $stmt->execute([$id]);
                 $success = "Promo code status updated!";
             }
         } elseif ($action === 'delete') {
-            $id = $_POST['id'] ?? '';
-            if ($id) {
+            $id = (int)($_POST['id'] ?? 0);
+            if ($id > 0) {
                 $stmt = $db->prepare("DELETE FROM promo_codes WHERE id = ?");
                 $stmt->execute([$id]);
                 $success = "Promo code deleted!";
