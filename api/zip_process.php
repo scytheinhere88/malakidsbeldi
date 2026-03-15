@@ -8,6 +8,8 @@ require_once __DIR__.'/../includes/SystemMonitor.php';
 if(!isLoggedIn()){ http_response_code(401); echo json_encode(['ok'=>false,'msg'=>'Unauthorized']); exit; }
 ini_set('max_execution_time', 0);
 ini_set('memory_limit', '512M');
+ini_set('post_max_size', '256M');
+ini_set('upload_max_filesize', '256M');
 
 // Rate limiting with bypass for legitimate operations
 $monitor = new SystemMonitor($pdo);

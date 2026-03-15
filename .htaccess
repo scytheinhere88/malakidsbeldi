@@ -3,10 +3,10 @@
 # PHP Settings
 php_flag  display_errors        On
 php_value error_reporting       E_ALL
-php_value upload_max_filesize   64M
-php_value post_max_size         64M
+php_value upload_max_filesize   256M
+php_value post_max_size         256M
 php_value max_execution_time    600
-php_value memory_limit          256M
+php_value memory_limit          512M
 
 # Session Fix — LiteSpeed PHP 8.3 (system /var/lib/lsphp is not writable)
 php_value session.save_path      /home/bulkreplacetool.com/tmp/sessions

@@ -512,9 +512,9 @@ function require_csrf(): void {
   }
 }
 
-define('MAX_PAYLOAD_DEFAULT',  1 * 1024 * 1024);
-define('MAX_PAYLOAD_CSV',     10 * 1024 * 1024);
-define('MAX_PAYLOAD_ZIP',     50 * 1024 * 1024);
+define('MAX_PAYLOAD_DEFAULT',    2 * 1024 * 1024);
+define('MAX_PAYLOAD_CSV',       32 * 1024 * 1024);
+define('MAX_PAYLOAD_ZIP',      256 * 1024 * 1024);
 
 function enforce_payload_limit(int $maxBytes = MAX_PAYLOAD_DEFAULT): void {
   $contentLength = (int)($_SERVER['CONTENT_LENGTH'] ?? 0);
