@@ -3,6 +3,17 @@
 class SecurityHeaders {
 
     private static ?string $nonce = null;
+    private static ?string $requestId = null;
+
+    public static function requestId(): string {
+        if (self::$requestId === null) {
+            $incoming = $_SERVER['HTTP_X_REQUEST_ID'] ?? '';
+            self::$requestId = preg_match('/^[a-zA-Z0-9\-]{8,64}$/', $incoming)
+                ? $incoming
+                : bin2hex(random_bytes(12));
+        }
+        return self::$requestId;
+    }
 
     private static function isHttps(): bool {
         return (defined('FORCE_HTTPS') && FORCE_HTTPS === true)
@@ -23,11 +34,12 @@ class SecurityHeaders {
         return 'nonce="' . htmlspecialchars(self::nonce(), ENT_QUOTES, 'UTF-8') . '"';
     }
 
-    public static function apply() {
+    public static function apply(): void {
         if (headers_sent()) {
             return;
         }
 
+        header("X-Request-ID: " . self::requestId());
         header("X-Content-Type-Options: nosniff");
         header("X-Frame-Options: SAMEORIGIN");
         header("X-XSS-Protection: 1; mode=block");
@@ -71,11 +83,12 @@ class SecurityHeaders {
         }
     }
 
-    public static function applyApiHeaders() {
+    public static function applyApiHeaders(): void {
         if (headers_sent()) {
             return;
         }
 
+        header("X-Request-ID: " . self::requestId());
         header("X-Content-Type-Options: nosniff");
         header("X-Frame-Options: DENY");
         header("Content-Type: application/json; charset=utf-8");
@@ -99,12 +112,12 @@ class SecurityHeaders {
         }
     }
 
-    public static function preventClickjacking() {
+    public static function preventClickjacking(): void {
         header("X-Frame-Options: DENY");
         header("Content-Security-Policy: frame-ancestors 'none'");
     }
 
-    public static function setNoCache() {
+    public static function setNoCache(): void {
         header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
         header("Pragma: no-cache");
         header("Expires: 0");

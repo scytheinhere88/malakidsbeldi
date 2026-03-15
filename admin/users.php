@@ -43,110 +43,119 @@ $auditLogger->setAdminId($_SESSION['admin_id'] ?? 1);
 
 // Handle edit form submit
 if($_SERVER['REQUEST_METHOD']==='POST'&&isset($_POST['uid'])){
-  if(!csrf_verify()){ $err='Security validation failed.'; goto show_page; }
-  $uid=(int)$_POST['uid'];
+  if(!csrf_verify()){
+    $err='Security validation failed.';
+  } else {
+    $uid=(int)$_POST['uid'];
 
-  $oldData = db()->prepare("SELECT plan, billing_cycle, plan_expires_at, status, rollover_balance FROM users WHERE id=?");
-  $oldData->execute([$uid]);
-  $oldUser = $oldData->fetch();
-  if(!$oldUser){ $err='User not found.'; goto show_page; }
+    $oldData = db()->prepare("SELECT plan, billing_cycle, plan_expires_at, status, rollover_balance FROM users WHERE id=?");
+    $oldData->execute([$uid]);
+    $oldUser = $oldData->fetch();
+    if(!$oldUser){
+      $err='User not found.';
+    } else {
+      $plan=$_POST['plan']??'free';
+      $billing=$_POST['billing_cycle']??'none';
+      $expires=$_POST['plan_expires_at']?:null;
+      $status=$_POST['status']??'active';
+      $rollover=(int)($_POST['rollover_balance']??0);
 
-  $plan=$_POST['plan']??'free';
-  $billing=$_POST['billing_cycle']??'none';
-  $expires=$_POST['plan_expires_at']?:null;
-  $status=$_POST['status']??'active';
-  $rollover=(int)($_POST['rollover_balance']??0);
+      db()->prepare("UPDATE users SET plan=?,billing_cycle=?,plan_expires_at=?,status=?,rollover_balance=? WHERE id=?")
+        ->execute([$plan,$billing,$expires,$status,$rollover,$uid]);
 
-  db()->prepare("UPDATE users SET plan=?,billing_cycle=?,plan_expires_at=?,status=?,rollover_balance=? WHERE id=?")
-    ->execute([$plan,$billing,$expires,$status,$rollover,$uid]);
+      $auditLogger->logAdminAction('user_updated', 'user', $uid, [
+        'old_plan' => $oldUser['plan'] ?? 'unknown',
+        'new_plan' => $plan,
+        'old_billing' => $oldUser['billing_cycle'] ?? 'unknown',
+        'new_billing' => $billing,
+        'old_status' => $oldUser['status'] ?? 'unknown',
+        'new_status' => $status,
+        'old_rollover' => $oldUser['rollover_balance'] ?? 0,
+        'new_rollover' => $rollover
+      ]);
 
-  $auditLogger->logAdminAction('user_updated', 'user', $uid, [
-    'old_plan' => $oldUser['plan'] ?? 'unknown',
-    'new_plan' => $plan,
-    'old_billing' => $oldUser['billing_cycle'] ?? 'unknown',
-    'new_billing' => $billing,
-    'old_status' => $oldUser['status'] ?? 'unknown',
-    'new_status' => $status,
-    'old_rollover' => $oldUser['rollover_balance'] ?? 0,
-    'new_rollover' => $rollover
-  ]);
-
-  // Admin note
-  if(!empty($_POST['note'])){
-    db()->prepare("INSERT INTO admin_notes(user_id,note,created_by)VALUES(?,?,'admin')")->execute([$uid,$_POST['note']]);
+      if(!empty($_POST['note'])){
+        db()->prepare("INSERT INTO admin_notes(user_id,note,created_by)VALUES(?,?,'admin')")->execute([$uid,$_POST['note']]);
+      }
+      $msg='User updated successfully.';
+    }
   }
-  $msg='User updated successfully.';
 }
 
 // Handle admin password reset
 if($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['reset_pw_uid'])){
-  if(!csrf_verify()){ $err='Security validation failed.'; goto show_page; }
-  $uid  = (int)$_POST['reset_pw_uid'];
-  $pass = trim($_POST['new_password'] ?? '');
-  $existsCheck = db()->prepare("SELECT id FROM users WHERE id=?"); $existsCheck->execute([$uid]);
-  if(!$existsCheck->fetch()){ $err='User not found.'; goto show_page; }
-  if($uid && strlen($pass) >= 6){
-    $hash = password_hash($pass, PASSWORD_BCRYPT);
-    db()->prepare("UPDATE users SET password=?, reset_token=NULL, reset_token_expires=NULL WHERE id=?")
-      ->execute([$hash, $uid]);
-    db()->prepare("INSERT INTO admin_notes(user_id,note,created_by)VALUES(?,?,'admin')")
-      ->execute([$uid, 'Password reset by admin']);
-
-    $auditLogger->logAdminAction('password_reset', 'user', $uid, [
-      'action' => 'admin_forced_password_reset'
-    ]);
-
-    header('Location: /admin/users.php?edit='.$uid.'&msg='.urlencode('Password reset successfully.')); exit;
+  if(!csrf_verify()){
+    $err='Security validation failed.';
   } else {
-    $err = 'Password must be at least 6 characters.';
+    $uid  = (int)$_POST['reset_pw_uid'];
+    $pass = trim($_POST['new_password'] ?? '');
+    $existsCheck = db()->prepare("SELECT id FROM users WHERE id=?"); $existsCheck->execute([$uid]);
+    if(!$existsCheck->fetch()){
+      $err='User not found.';
+    } elseif($uid && strlen($pass) >= 6){
+      $hash = password_hash($pass, PASSWORD_BCRYPT);
+      db()->prepare("UPDATE users SET password=?, reset_token=NULL, reset_token_expires=NULL WHERE id=?")
+        ->execute([$hash, $uid]);
+      db()->prepare("INSERT INTO admin_notes(user_id,note,created_by)VALUES(?,?,'admin')")
+        ->execute([$uid, 'Password reset by admin']);
+
+      $auditLogger->logAdminAction('password_reset', 'user', $uid, [
+        'action' => 'admin_forced_password_reset'
+      ]);
+
+      header('Location: /admin/users.php?edit='.$uid.'&msg='.urlencode('Password reset successfully.')); exit;
+    } else {
+      $err = 'Password must be at least 6 characters.';
+    }
   }
 }
 
 // Handle addon grant/revoke
 if($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['addon_action'])){
-  if(!csrf_verify()){ $err='Security validation failed.'; goto show_page; }
-  $uid     = (int)($_POST['addon_uid'] ?? 0);
-  $slug    = $_POST['addon_slug'] ?? '';
-  $action  = $_POST['addon_action'] ?? '';
-  $addonUserCheck = db()->prepare("SELECT id FROM users WHERE id=?"); $addonUserCheck->execute([$uid]);
-  if(!$uid || !$addonUserCheck->fetch()){ $err='User not found.'; goto show_page; }
-  if($uid && $slug && in_array($action,['grant','revoke'])){
-    // Ensure addon row exists
-    db()->prepare("INSERT IGNORE INTO addons(slug,name) VALUES(?,?)")
-      ->execute([$slug, ADDON_DATA[$slug]['name'] ?? $slug]);
-    $stmt = db()->prepare("SELECT id FROM addons WHERE slug=?");
-    $stmt->execute([$slug]);
-    $aid = $stmt->fetchColumn();
-    if($action==='grant'){
-      db()->prepare("INSERT IGNORE INTO user_addons(user_id,addon_id,is_active,purchased_at)VALUES(?,?,1,NOW())")
-        ->execute([$uid,$aid]);
-      db()->prepare("INSERT INTO admin_notes(user_id,note,created_by)VALUES(?,?,'admin')")
-        ->execute([$uid, 'Addon granted: ' . $slug]);
+  if(!csrf_verify()){
+    $err='Security validation failed.';
+  } else {
+    $uid     = (int)($_POST['addon_uid'] ?? 0);
+    $slug    = $_POST['addon_slug'] ?? '';
+    $action  = $_POST['addon_action'] ?? '';
+    $addonUserCheck = db()->prepare("SELECT id FROM users WHERE id=?"); $addonUserCheck->execute([$uid]);
+    if(!$uid || !$addonUserCheck->fetch()){
+      $err='User not found.';
+    } elseif($slug && in_array($action,['grant','revoke'])){
+      db()->prepare("INSERT IGNORE INTO addons(slug,name) VALUES(?,?)")
+        ->execute([$slug, ADDON_DATA[$slug]['name'] ?? $slug]);
+      $stmt = db()->prepare("SELECT id FROM addons WHERE slug=?");
+      $stmt->execute([$slug]);
+      $aid = $stmt->fetchColumn();
+      if($action==='grant'){
+        db()->prepare("INSERT IGNORE INTO user_addons(user_id,addon_id,is_active,purchased_at)VALUES(?,?,1,NOW())")
+          ->execute([$uid,$aid]);
+        db()->prepare("INSERT INTO admin_notes(user_id,note,created_by)VALUES(?,?,'admin')")
+          ->execute([$uid, 'Addon granted: ' . $slug]);
 
-      $auditLogger->logAdminAction('addon_granted', 'addon', $slug, [
-        'user_id' => $uid,
-        'action' => 'manual_grant'
-      ]);
+        $auditLogger->logAdminAction('addon_granted', 'addon', $slug, [
+          'user_id' => $uid,
+          'action' => 'manual_grant'
+        ]);
 
-      $msg = "Addon '{$slug}' granted to user #{$uid}.";
-    } else {
-      db()->prepare("DELETE FROM user_addons WHERE user_id=? AND addon_id=?")
-        ->execute([$uid,$aid]);
-      db()->prepare("INSERT INTO admin_notes(user_id,note,created_by)VALUES(?,?,'admin')")
-        ->execute([$uid, 'Addon revoked: ' . $slug]);
+        $msg = "Addon '{$slug}' granted to user #{$uid}.";
+      } else {
+        db()->prepare("DELETE FROM user_addons WHERE user_id=? AND addon_id=?")
+          ->execute([$uid,$aid]);
+        db()->prepare("INSERT INTO admin_notes(user_id,note,created_by)VALUES(?,?,'admin')")
+          ->execute([$uid, 'Addon revoked: ' . $slug]);
 
-      $auditLogger->logAdminAction('addon_revoked', 'addon', $slug, [
-        'user_id' => $uid,
-        'action' => 'manual_revoke'
-      ]);
+        $auditLogger->logAdminAction('addon_revoked', 'addon', $slug, [
+          'user_id' => $uid,
+          'action' => 'manual_revoke'
+        ]);
 
-      $msg = "Addon '{$slug}' revoked from user #{$uid}.";
+        $msg = "Addon '{$slug}' revoked from user #{$uid}.";
+      }
+      header('Location: /admin/users.php?edit='.$uid.'&msg='.urlencode($msg)); exit;
     }
   }
-  header('Location: /admin/users.php?edit='.$uid.'&msg='.urlencode($msg)); exit;
 }
-
-show_page:
 // Edit mode
 $edit=null;$edit_notes=[];
 if(isset($_GET['edit'])){

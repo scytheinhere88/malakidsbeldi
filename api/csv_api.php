@@ -3,6 +3,7 @@ require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../includes/RateLimitMiddleware.php';
 require_once __DIR__ . '/../includes/SystemMonitor.php';
 
+enforce_payload_limit(MAX_PAYLOAD_CSV);
 $requestStartTime = microtime(true);
 header('Content-Type: application/json');
 

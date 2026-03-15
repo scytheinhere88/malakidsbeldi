@@ -2,6 +2,7 @@
 session_start();
 set_time_limit(0);
 require_once __DIR__.'/../config.php';
+enforce_payload_limit(MAX_PAYLOAD_ZIP);
 require_once __DIR__.'/../includes/EnhancedRateLimiter.php';
 require_once __DIR__.'/../includes/SystemMonitor.php';
 if(!isLoggedIn()){ http_response_code(401); echo json_encode(['ok'=>false,'msg'=>'Unauthorized']); exit; }

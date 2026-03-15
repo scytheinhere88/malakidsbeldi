@@ -379,7 +379,7 @@ function ss(){
 }
 function startSession(){ss();}
 function isLoggedIn():bool{ss();if(empty($_SESSION['uid']))return false;if(time()-($_SESSION['lt']??0)>SESSION_USER_TIMEOUT){session_destroy();return false;}$_SESSION['lt']=time();return true;}
-function requireLogin(){if(!isLoggedIn()){header('Location:'.APP_URL.'/auth/login.php?next='.urlencode($_SERVER['REQUEST_URI']));exit;}}
+function requireLogin(): void {if(!isLoggedIn()){header('Location:'.APP_URL.'/auth/login.php?next='.urlencode($_SERVER['REQUEST_URI']));exit;}}
 function isAdmin():bool{
   ss();
   if(empty($_SESSION['is_admin']))return false;
@@ -392,7 +392,7 @@ function isAdmin():bool{
   $_SESSION['admin_lt']=time();
   return true;
 }
-function requireAdmin(){
+function requireAdmin(): void {
   ss();
   if(!isAdmin()){
     $expired = !empty($_SESSION['is_admin_was_set']);
@@ -403,7 +403,7 @@ function requireAdmin(){
   }
 }
 function verifyCronAuth():bool{if(php_sapi_name()==='cli')return true;$key=$_GET['key']??$_POST['key']??'';return hash_equals(CRON_AUTH_KEY,$key);}
-function requireCronAuth(){if(!verifyCronAuth()){http_response_code(401);header('Content-Type:application/json');echo json_encode(['success'=>false,'error'=>'Unauthorized']);exit;}}
+function requireCronAuth(): void {if(!verifyCronAuth()){http_response_code(401);header('Content-Type:application/json');echo json_encode(['success'=>false,'error'=>'Unauthorized']);exit;}}
 function currentUser():?array{if(!isLoggedIn())return null;$s=db()->prepare("SELECT * FROM users WHERE id=?");$s->execute([$_SESSION['uid']]);return $s->fetch()?:null;}
 function getPlan(string $k):array{return PLAN_DATA[$k]??PLAN_DATA['free'];}
 function getUserQuota(int $uid, bool $useCache = true):array{
@@ -434,7 +434,7 @@ function logUsage(int $uid,int $rows,int $files,string $jobType='bulk_replace',?
 function ago(string $dt):string{$d=time()-strtotime($dt);if($d<60)return'just now';if($d<3600)return floor($d/60).'m ago';if($d<86400)return floor($d/3600).'h ago';return floor($d/86400).'d ago';}
 
 function getLang():string{ss();return $_SESSION['lang']??$_COOKIE['lang']??DEFAULT_LANG;}
-function setLang(string $l){ss();$_SESSION['lang']=$l;setcookie('lang',$l,time()+31536000,'/');}
+function setLang(string $l): void {ss();$_SESSION['lang']=$l;setcookie('lang',$l,time()+31536000,'/');}
 function t(string $k):string{static $t=null;if(!$t){$l=getLang();$l=preg_match('/^[a-z]{2}(_[a-z]{2,4})?$/i',$l)?$l:DEFAULT_LANG;$f=__DIR__.'/lang/'.$l.'.php';$t=file_exists($f)?require $f:require __DIR__.'/lang/'.DEFAULT_LANG.'.php';}return $t[$k]??$k;}
 
 // Addons that are ALWAYS sold separately, even for has_addons plans
@@ -509,6 +509,22 @@ function require_csrf(): void {
   if ($_SERVER['REQUEST_METHOD'] === 'POST' && !csrf_verify()) {
     http_response_code(403);
     die(json_encode(['error' => 'CSRF validation failed. Please refresh the page and try again.']));
+  }
+}
+
+define('MAX_PAYLOAD_DEFAULT',  1 * 1024 * 1024);
+define('MAX_PAYLOAD_CSV',     10 * 1024 * 1024);
+define('MAX_PAYLOAD_ZIP',     50 * 1024 * 1024);
+
+function enforce_payload_limit(int $maxBytes = MAX_PAYLOAD_DEFAULT): void {
+  $contentLength = (int)($_SERVER['CONTENT_LENGTH'] ?? 0);
+  if ($contentLength > $maxBytes) {
+    http_response_code(413);
+    header('Content-Type: application/json');
+    die(json_encode([
+      'ok'    => false,
+      'error' => 'Payload too large. Maximum allowed: ' . round($maxBytes / 1024 / 1024, 1) . ' MB.',
+    ]));
   }
 }
 
