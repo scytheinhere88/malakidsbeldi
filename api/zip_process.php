@@ -356,14 +356,17 @@ function normPath($p) {
     $p = trim($p);
     if (empty($p)) return '';
 
-    if (strpos($p, '..') !== false) {
+    // Decode URL encoding to catch encoded traversal like %2e%2e or %2F
+    $decoded = urldecode($p);
+    if (strpos($decoded, '..') !== false || strpos($p, '..') !== false) {
         error_log("SECURITY: Path traversal attempt detected: {$p}");
         http_response_code(400);
         sse(['type'=>'error','msg'=>'Invalid path: directory traversal not allowed']);
         exit;
     }
 
-    if (preg_match('/[<>:"|?*]/', $p)) {
+    // Block null bytes and other dangerous characters
+    if (strpos($p, "\0") !== false || preg_match('/[<>"|?*]/', $p)) {
         error_log("SECURITY: Invalid characters in path: {$p}");
         http_response_code(400);
         sse(['type'=>'error','msg'=>'Invalid path: contains forbidden characters']);
@@ -379,24 +382,44 @@ function normPath($p) {
         realpath(__DIR__ . '/..')
     ];
 
+    // For existing paths, enforce realpath boundary check
     $realPath = realpath($p);
-    if ($realPath === false) {
-        return $p;
-    }
-
-    $isAllowed = false;
-    foreach ($allowedBasePaths as $basePath) {
-        if ($basePath && strpos($realPath, $basePath) === 0) {
-            $isAllowed = true;
-            break;
+    if ($realPath !== false) {
+        $isAllowed = false;
+        foreach ($allowedBasePaths as $basePath) {
+            if ($basePath && strpos($realPath . DIRECTORY_SEPARATOR, $basePath . DIRECTORY_SEPARATOR) === 0) {
+                $isAllowed = true;
+                break;
+            }
         }
+
+        if (!$isAllowed) {
+            error_log("SECURITY: Path outside allowed directories: {$realPath}");
+            http_response_code(403);
+            sse(['type'=>'error','msg'=>'Access denied: path outside allowed directories']);
+            exit;
+        }
+
+        return $realPath;
     }
 
-    if (!$isAllowed) {
-        error_log("SECURITY: Path outside allowed directories: {$realPath}");
-        http_response_code(403);
-        sse(['type'=>'error','msg'=>'Access denied: path outside allowed directories']);
-        exit;
+    // For non-existing paths (e.g. output dir to be created), verify parent is within allowed dirs
+    $parent = dirname($p);
+    $realParent = realpath($parent);
+    if ($realParent !== false) {
+        $isAllowed = false;
+        foreach ($allowedBasePaths as $basePath) {
+            if ($basePath && strpos($realParent . DIRECTORY_SEPARATOR, $basePath . DIRECTORY_SEPARATOR) === 0) {
+                $isAllowed = true;
+                break;
+            }
+        }
+        if (!$isAllowed) {
+            error_log("SECURITY: Parent path outside allowed directories: {$realParent}");
+            http_response_code(403);
+            sse(['type'=>'error','msg'=>'Access denied: path outside allowed directories']);
+            exit;
+        }
     }
 
     return $p;

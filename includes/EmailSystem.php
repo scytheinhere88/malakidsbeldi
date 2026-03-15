@@ -106,8 +106,23 @@ class EmailSystem {
     }
 
     private function replaceVariables($text, $variables) {
+        // Safe URL/path keys that must NOT be HTML-escaped
+        $urlKeys = ['app_url', 'dashboard_url', 'billing_url', 'reset_link', 'verify_link', 'unsubscribe_url'];
+
         foreach ($variables as $key => $value) {
-            $text = str_replace('{{' . $key . '}}', $value, $text);
+            $safeValue = (string)$value;
+
+            // HTML-escape all values except known safe URL variables to prevent injection
+            if (!in_array($key, $urlKeys, true)) {
+                $safeValue = htmlspecialchars($safeValue, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+            } else {
+                // For URL values, only allow http/https schemes and strip dangerous protocols
+                if (!preg_match('/^https?:\/\//i', $safeValue)) {
+                    $safeValue = htmlspecialchars($safeValue, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+                }
+            }
+
+            $text = str_replace('{{' . $key . '}}', $safeValue, $text);
         }
         return $text;
     }

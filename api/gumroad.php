@@ -12,14 +12,30 @@ require_once dirname(__DIR__).'/includes/WebhookRetryQueue.php';
 // Gumroad sekarang pakai "Ping" bukan webhook.
 // Ping mengirim POST data yang sama dengan webhook lama,
 // tapi TANPA signature header.
-// Keamanan: pakai secret token di URL query string.
-// URL format: /api/gumroad.php?token=YOUR_PING_TOKEN
+//
+// Token priority (most secure first):
+//   1. X-Gumroad-Signature header (HMAC — webhook mode)
+//   2. X-Ping-Token header (preferred — not logged)
+//   3. ?token= query string (legacy — still supported but logs warning)
 // ============================================
 
-$pingToken     = $_GET['token'] ?? '';
 $configToken   = defined('GUMROAD_PING_TOKEN') ? GUMROAD_PING_TOKEN : '';
 $signature     = $_SERVER['HTTP_X_GUMROAD_SIGNATURE'] ?? '';
 $webhookSecret = defined('GUMROAD_WEBHOOK_SECRET') ? GUMROAD_WEBHOOK_SECRET : '';
+
+// Prefer header-based token over query string to avoid server log exposure
+$pingTokenHeader = $_SERVER['HTTP_X_PING_TOKEN'] ?? '';
+$pingTokenQuery  = $_GET['token'] ?? '';
+
+if (!empty($pingTokenHeader)) {
+    $pingToken = $pingTokenHeader;
+} elseif (!empty($pingTokenQuery)) {
+    // Legacy query string token — warn in logs, token appears in server access logs
+    error_log('SECURITY WARNING: Gumroad ping token passed via query string. Switch to X-Ping-Token header to prevent token exposure in server logs.');
+    $pingToken = $pingTokenQuery;
+} else {
+    $pingToken = '';
+}
 
 $isWebhook = !empty($signature) && !empty($webhookSecret);
 $isPing    = !empty($configToken) && !empty($pingToken);

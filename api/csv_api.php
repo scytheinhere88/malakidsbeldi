@@ -6,15 +6,19 @@ require_once __DIR__ . '/../includes/SystemMonitor.php';
 $requestStartTime = microtime(true);
 header('Content-Type: application/json');
 
+$allowedOrigin = defined('APP_URL') ? APP_URL : 'https://bulkreplacetool.com';
+
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-    header('Access-Control-Allow-Origin: *');
+    header('Access-Control-Allow-Origin: ' . $allowedOrigin);
     header('Access-Control-Allow-Methods: POST, GET');
     header('Access-Control-Allow-Headers: Content-Type, Authorization, X-API-Key');
+    header('Vary: Origin');
     http_response_code(200);
     exit;
 }
 
-header('Access-Control-Allow-Origin: *');
+header('Access-Control-Allow-Origin: ' . $allowedOrigin);
+header('Vary: Origin');
 
 function apiError($msg, $code = 400) {
     global $requestStartTime, $pdo, $uid;
@@ -71,7 +75,8 @@ try {
     checkApiRateLimit('csv_api', 100, 3600);
 
 } catch (Exception $e) {
-    apiError('Authentication failed: ' . $e->getMessage(), 401);
+    error_log("CSV API auth error: " . $e->getMessage());
+    apiError('Authentication failed', 401);
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -161,7 +166,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ]);
 
     } catch (Exception $e) {
-        apiError('Failed to queue job: ' . $e->getMessage(), 500);
+        error_log("CSV API queue job error: " . $e->getMessage());
+        apiError('Failed to queue job. Please try again.', 500);
     }
 
     exit;
@@ -237,7 +243,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         ]);
 
     } catch (Exception $e) {
-        apiError('Failed to get job status: ' . $e->getMessage(), 500);
+        error_log("CSV API job status error: " . $e->getMessage());
+        apiError('Failed to get job status. Please try again.', 500);
     }
 
     exit;

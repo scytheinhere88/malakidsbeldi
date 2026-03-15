@@ -2,6 +2,12 @@
 
 class SecurityHeaders {
 
+    private static function isHttps(): bool {
+        return (defined('FORCE_HTTPS') && FORCE_HTTPS === true)
+            || (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+            || (isset($_SERVER['SERVER_PORT']) && $_SERVER['SERVER_PORT'] == 443);
+    }
+
     public static function apply() {
         if (headers_sent()) {
             return;
@@ -17,8 +23,8 @@ class SecurityHeaders {
 
         header("Permissions-Policy: geolocation=(), microphone=(), camera=()");
 
-        if (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') {
-            header("Strict-Transport-Security: max-age=31536000; includeSubDomains");
+        if (self::isHttps()) {
+            header("Strict-Transport-Security: max-age=31536000; includeSubDomains; preload");
         }
 
         $csp = [
@@ -38,8 +44,9 @@ class SecurityHeaders {
         header("X-Permitted-Cross-Domain-Policies: none");
 
         if (session_status() === PHP_SESSION_ACTIVE) {
+            $https = self::isHttps();
             ini_set('session.cookie_httponly', 1);
-            ini_set('session.cookie_secure', isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 1 : 0);
+            ini_set('session.cookie_secure', $https ? 1 : 0);
             ini_set('session.cookie_samesite', 'Lax');
             ini_set('session.use_strict_mode', 1);
         }
@@ -54,14 +61,18 @@ class SecurityHeaders {
         header("X-Frame-Options: DENY");
         header("Content-Type: application/json; charset=utf-8");
 
-        if (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') {
-            header("Strict-Transport-Security: max-age=31536000; includeSubDomains");
+        if (self::isHttps()) {
+            header("Strict-Transport-Security: max-age=31536000; includeSubDomains; preload");
         }
 
-        header("Access-Control-Allow-Origin: " . (defined('CORS_ORIGIN') ? CORS_ORIGIN : $_SERVER['HTTP_ORIGIN'] ?? '*'));
+        $allowedOrigin = defined('APP_URL') ? APP_URL : (defined('CORS_ORIGIN') ? CORS_ORIGIN : '');
+        if (!empty($allowedOrigin)) {
+            header("Access-Control-Allow-Origin: " . $allowedOrigin);
+        }
         header("Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS");
-        header("Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With");
+        header("Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With, X-API-Key");
         header("Access-Control-Max-Age: 86400");
+        header("Vary: Origin");
 
         if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
             http_response_code(200);

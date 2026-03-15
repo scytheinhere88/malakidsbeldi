@@ -79,7 +79,8 @@ if(isset($_POST['verify_2fa']) && isset($_SESSION['temp_2fa_user'])){
 
 if($_SERVER['REQUEST_METHOD']==='POST' && !isset($_POST['verify_2fa'])){
     $ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
-    $rateCheck = $rateLimiter->check($ip, 'login', 10, 900);
+    // 5 attempts per 15 minutes per IP (was 10 — stricter to prevent brute force)
+    $rateCheck = $rateLimiter->check($ip, 'login', 5, 900);
 
     if(!csrf_verify()){
         $err='Security validation failed. Please refresh and try again.';
@@ -96,7 +97,14 @@ if($_SERVER['REQUEST_METHOD']==='POST' && !isset($_POST['verify_2fa'])){
         if(!$email||!$pass){
             $err='Please fill in all fields.';
         } else {
-            if($securityManager->isLoginBlocked($email, $ip)){
+            // Per-email rate limit (5 attempts/15 min) — catches IP-rotating attackers
+            $emailRateKey = 'login_email_' . hash('sha256', $email);
+            $emailRateCheck = $rateLimiter->check($emailRateKey, 'login_email', 5, 900);
+            if(!$emailRateCheck['allowed']){
+                $minutes = ceil(($emailRateCheck['retry_after'] ?? 900) / 60);
+                $err = "Too many login attempts for this account. Try again in {$minutes} minutes.";
+                $auditLogger->logAuth('login_rate_limited', $email, 'blocked', 'Per-email rate limit exceeded');
+            } elseif($securityManager->isLoginBlocked($email, $ip)){
                 $err = 'Account temporarily blocked due to multiple failed login attempts. Please try again in 15 minutes.';
                 $auditLogger->logAuth('login_blocked', $email, 'blocked', 'Multiple failed attempts');
             } else {
@@ -126,6 +134,7 @@ if($_SERVER['REQUEST_METHOD']==='POST' && !isset($_POST['verify_2fa'])){
                             $tempUserId = $u['id'];
                         } else {
                             $rateLimiter->reset($ip, 'login');
+                            $rateLimiter->reset($emailRateKey, 'login_email');
                             $securityManager->clearFailedLoginAttempts($email, $ip);
 
                             $sessionId = $securityManager->createSession($u['id']);
