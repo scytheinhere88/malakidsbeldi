@@ -764,6 +764,7 @@ if (!hasAddonAccess((int)$u['id'], 'autopilot')) {
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script>
+var CSRF_TOKEN = <?= json_encode(csrf_token()) ?>;
 /* =========================================================
    AUTOPILOT ENGINE v3 - BulkReplace
    Workflow: scan folder -> drop domains -> Bot detects values
@@ -1038,7 +1039,7 @@ async function runAIDetect(){
     var tid = setTimeout(function(){ controller.abort(); }, 90000);
     var detectRes = await fetch('/api/autopilot_detect.php',{
       method:'POST',
-      headers:{'Content-Type':'application/json'},
+      headers:{'Content-Type':'application/json','X-CSRF-TOKEN':CSRF_TOKEN},
       signal: controller.signal,
       body: JSON.stringify({
         template_content: sampleContent,
@@ -1717,7 +1718,7 @@ async function fetchDomainDataQueue(domains, keywordHint, userHints){
 
     var initRes = await fetch('/api/autopilot_data.php',{
       method:'POST',
-      headers:{'Content-Type':'application/json'},
+      headers:{'Content-Type':'application/json','X-CSRF-TOKEN':CSRF_TOKEN},
       body: JSON.stringify({
         domains: domains,
         keyword_hint: keywordHint || '',
@@ -1761,7 +1762,7 @@ async function fetchDomainDataQueue(domains, keywordHint, userHints){
         // Process next chunk
         var processRes = await fetch('/api/autopilot_queue_process.php',{
           method:'POST',
-          headers:{'Content-Type':'application/json'},
+          headers:{'Content-Type':'application/json','X-CSRF-TOKEN':CSRF_TOKEN},
           body: JSON.stringify({
             job_id: jobId,
             chunk_size: 10

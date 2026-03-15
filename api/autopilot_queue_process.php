@@ -12,6 +12,7 @@ require_once dirname(__DIR__).'/includes/EnhancedRateLimiter.php';
 require_once dirname(__DIR__).'/includes/SystemMonitor.php';
 
 header('Content-Type: application/json');
+require_csrf();
 
 // Increase execution time and memory for large batches
 set_time_limit(300); // 5 minutes max per chunk
@@ -44,7 +45,7 @@ try {
 
     // If already completed, return final data immediately
     if ($job['status'] === 'completed') {
-        $finalData = json_decode($job['result_data'] ?? '{}', true) ?? [];
+        $finalData = (!empty($job['result_data']) ? json_decode($job['result_data'], true) : null) ?? [];
         echo json_encode([
             'ok'        => true,
             'completed' => true,
@@ -87,8 +88,9 @@ try {
 
         $finalData = [];
         foreach ($allResults as $jsonData) {
+            if (empty($jsonData)) continue;
             $data = json_decode($jsonData, true);
-            if ($data && isset($data['namalink'])) {
+            if (is_array($data) && isset($data['namalink'])) {
                 $finalData[$data['namalink']] = $data;
             }
         }

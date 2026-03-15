@@ -48,13 +48,14 @@ try {
 set_time_limit(120);
 ini_set('max_execution_time', 120);
 header('Content-Type: application/json');
+require_csrf();
 
 $body        = json_decode(file_get_contents('php://input'), true) ?? [];
 $content     = $body['template_content'] ?? '';   // representative template text
 $domains     = $body['domains']          ?? [];
 $refDomain   = $body['ref_domain']       ?? ($domains[0] ?? '');
-$keywordHint = trim($body['keyword_hint'] ?? '');
-$userHints   = trim($body['user_hints']   ?? '');  // NEW: User-provided hints
+$keywordHint = substr(trim(strip_tags($body['keyword_hint'] ?? '')), 0, 100);
+$userHints   = substr(trim(strip_tags($body['user_hints']   ?? '')), 0, 1000);
 
 // Store for analytics tracking
 $GLOBALS['_autopilot_content'] = $content;
@@ -96,35 +97,6 @@ function buildResult(array $mapping, array $undetected, string $method): string 
 
     $pdo = db();
     $uid = currentUser()['id'] ?? null;
-    $jobId = null;
-
-    // Persist job to database so queue_process can run
-    try {
-        $jobId = bin2hex(random_bytes(16));
-        $totalDomains = count($GLOBALS['_autopilot_domains'] ?? []);
-
-        $stmt = $pdo->prepare("
-            INSERT INTO autopilot_jobs
-                (id, user_id, total_domains, processed_domains, status, keyword_hint, user_hints, result_data, created_at, updated_at)
-            VALUES
-                (?, ?, ?, 0, 'pending', ?, ?, NULL, NOW(), NOW())
-        ");
-        $stmt->execute([$jobId, $uid, $totalDomains, $keywordHint ?? '', $userHints ?? '']);
-
-        // Seed queue entries for all domains
-        $domainList = $GLOBALS['_autopilot_domains'] ?? [];
-        foreach ($domainList as $dom) {
-            $queueId = bin2hex(random_bytes(16));
-            $queueStmt = $pdo->prepare("
-                INSERT INTO autopilot_queue (id, job_id, domain, status, created_at)
-                VALUES (?, ?, ?, 'pending', NOW())
-            ");
-            $queueStmt->execute([$queueId, $jobId, strtolower(trim($dom))]);
-        }
-    } catch (Exception $e) {
-        error_log("Autopilot job persist failed: " . $e->getMessage());
-        $jobId = null;
-    }
 
     // Track analytics
     try {
@@ -141,7 +113,6 @@ function buildResult(array $mapping, array $undetected, string $method): string 
 
     return json_encode([
         'ok'              => true,
-        'job_id'          => $jobId,
         'detected_domain' => $detectedDomain,
         'detected_data'   => $detectedData,
         'mapping'         => $clean,

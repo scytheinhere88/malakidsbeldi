@@ -9,11 +9,11 @@ class AIDomainParser {
     private string $openaiKey = '';
     private string $claudeKey = '';
     private string $primaryModel = 'gpt-4o-mini';
-    private string $fallbackModel = 'claude-3-5-sonnet-20240620';
+    private string $fallbackModel = 'claude-sonnet-4-20250514';
     private int $batchSize = 30;
-    private static array $cache = [];
-    private static int $openaiFailures = 0;
-    private static int $claudeFailures = 0;
+    private array $cache = [];
+    private int $openaiFailures = 0;
+    private int $claudeFailures = 0;
 
     public function __construct() {
         // Setup OpenAI (PRIMARY)
@@ -42,8 +42,8 @@ class AIDomainParser {
         // Check cache first
         foreach ($domains as $d) {
             $key = strtolower(trim($d));
-            if (isset(self::$cache[$key])) {
-                $results[$key] = self::$cache[$key];
+            if (isset($this->cache[$key])) {
+                $results[$key] = $this->cache[$key];
             } else {
                 $toAsk[] = $key;
             }
@@ -67,7 +67,7 @@ class AIDomainParser {
 
             // Cache results and report progress per domain
             foreach ($batchResults as $k => $v) {
-                self::$cache[$k] = $v;
+                $this->cache[$k] = $v;
                 $processedCount++;
 
                 if ($progressCallback) {
@@ -91,23 +91,23 @@ class AIDomainParser {
      */
     private function callAI(array $domains, string $keywordHint): array {
         // Try OpenAI first (PRIMARY - faster, cheaper)
-        if (!empty($this->openaiKey) && self::$openaiFailures < 3) {
+        if (!empty($this->openaiKey) && $this->openaiFailures < 3) {
             $result = $this->callOpenAI($domains, $keywordHint);
             if ($result !== false) {
-                self::$openaiFailures = 0; // Reset on success
+                $this->openaiFailures = 0; // Reset on success
                 return $result;
             }
-            self::$openaiFailures++;
+            $this->openaiFailures++;
         }
 
         // Fallback to Claude (SMART BACKUP - more powerful)
-        if (!empty($this->claudeKey) && self::$claudeFailures < 3) {
+        if (!empty($this->claudeKey) && $this->claudeFailures < 3) {
             $result = $this->callClaude($domains, $keywordHint);
             if ($result !== false) {
-                self::$claudeFailures = 0; // Reset on success
+                $this->claudeFailures = 0; // Reset on success
                 return $result;
             }
-            self::$claudeFailures++;
+            $this->claudeFailures++;
         }
 
         // Last resort: Regex parser
@@ -337,13 +337,13 @@ PROMPT;
     /**
      * Get system stats (for monitoring)
      */
-    public static function getStats(): array {
+    public function getStats(): array {
         return [
-            'cache_size' => count(self::$cache),
-            'openai_failures' => self::$openaiFailures,
-            'claude_failures' => self::$claudeFailures,
-            'primary_active' => self::$openaiFailures < 3,
-            'fallback_active' => self::$claudeFailures < 3,
+            'cache_size' => count($this->cache),
+            'openai_failures' => $this->openaiFailures,
+            'claude_failures' => $this->claudeFailures,
+            'primary_active' => $this->openaiFailures < 3,
+            'fallback_active' => $this->claudeFailures < 3,
         ];
     }
 }

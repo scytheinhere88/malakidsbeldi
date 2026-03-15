@@ -41,7 +41,7 @@ try {
 
     // If completed, return final data
     if ($job['status'] === 'completed') {
-        $resultData = json_decode($job['result_data'], true) ?? [];
+        $resultData = (!empty($job['result_data']) ? json_decode($job['result_data'], true) : null) ?? [];
 
         echo json_encode([
             'ok' => true,
@@ -98,8 +98,9 @@ try {
 
             $finalData = [];
             foreach ($allResults as $jsonData) {
+                if (empty($jsonData)) continue;
                 $data = json_decode($jsonData, true);
-                if ($data && isset($data['namalink'])) {
+                if (is_array($data) && isset($data['namalink'])) {
                     $finalData[$data['namalink']] = $data;
                 }
             }

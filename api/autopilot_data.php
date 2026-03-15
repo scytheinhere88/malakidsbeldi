@@ -46,6 +46,7 @@ try {
 }
 
 header('Content-Type: application/json');
+require_csrf();
 $body        = json_decode(file_get_contents('php://input'), true) ?? [];
 $domains     = $body['domains'] ?? [];
 $keywordHint = trim($body['keyword_hint'] ?? '');
@@ -58,7 +59,13 @@ if (empty($domains)) {
 
 // Remove duplicates and clean
 $domains = array_values(array_unique(array_map('trim', array_map('strtolower', $domains))));
-$domains = array_filter($domains); // Remove empty strings
+$domains = array_filter($domains, function($d) {
+    return strlen($d) >= 3
+        && strpos($d, '.') !== false
+        && !preg_match('/[^a-z0-9.\-]/', $d)
+        && !in_array($d, ['localhost', '127.0.0.1', '0.0.0.0']);
+});
+$domains = array_values($domains);
 
 $pdo  = db();
 $user = currentUser();
