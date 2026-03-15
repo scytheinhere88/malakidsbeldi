@@ -1,0 +1,13 @@
+User-agent: *
+Allow: /
+Allow: /landing/
+Allow: /auth/login.php
+Allow: /auth/register.php
+
+Disallow: /dashboard/
+Disallow: /admin/
+Disallow: /api/
+Disallow: /lang/
+Disallow: /tool/
+
+Sitemap: https://bulkreplacetool.com/sitemap.xml

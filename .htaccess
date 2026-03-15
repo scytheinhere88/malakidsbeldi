@@ -1,0 +1,84 @@
+# ─── BulkReplace .htaccess ────────────────────────────────────────────────────
+
+# PHP Settings
+php_flag  display_errors        On
+php_value error_reporting       E_ALL
+php_value upload_max_filesize   64M
+php_value post_max_size         64M
+php_value max_execution_time    600
+php_value memory_limit          256M
+
+# Session Fix — LiteSpeed PHP 8.3 (system /var/lib/lsphp is not writable)
+php_value session.save_path      /home/bulkreplacetool.com/tmp/sessions
+php_value session.gc_maxlifetime 86400
+php_flag  session.use_strict_mode On
+php_flag  session.cookie_httponly On
+php_flag  session.cookie_secure   On
+
+# ─── Security Headers ─────────────────────────────────────────────────────────
+<IfModule mod_headers.c>
+  Header always set X-Frame-Options          "SAMEORIGIN"
+  Header always set X-Content-Type-Options   "nosniff"
+  Header always set X-XSS-Protection         "1; mode=block"
+  Header always set Referrer-Policy          "strict-origin-when-cross-origin"
+  Header always set Permissions-Policy       "geolocation=(), microphone=(), camera=()"
+</IfModule>
+
+# ─── Block direct access to sensitive files ───────────────────────────────────
+<FilesMatch "\.(sql|log|env|json|lock|md|sh|bak|git)$">
+  Order Allow,Deny
+  Deny from all
+</FilesMatch>
+
+<FilesMatch "^(config\.php|database\.sql)$">
+  Order Allow,Deny
+  Deny from all
+</FilesMatch>
+
+# ─── Block access to hidden directories ───────────────────────────────────────
+RedirectMatch 403 /\.git
+RedirectMatch 403 /\.env
+
+# ─── Directory listing off ───────────────────────────────────────────────────
+Options -Indexes
+
+# ─── Gzip Compression ────────────────────────────────────────────────────────
+<IfModule mod_deflate.c>
+  AddOutputFilterByType DEFLATE text/html text/plain text/css
+  AddOutputFilterByType DEFLATE application/javascript application/json
+  AddOutputFilterByType DEFLATE application/x-font-ttf font/opentype image/svg+xml
+</IfModule>
+
+# ─── Browser Caching ─────────────────────────────────────────────────────────
+<IfModule mod_expires.c>
+  ExpiresActive On
+  ExpiresByType text/css                  "access plus 1 month"
+  ExpiresByType application/javascript    "access plus 1 month"
+  ExpiresByType image/png                 "access plus 3 months"
+  ExpiresByType image/jpg                 "access plus 3 months"
+  ExpiresByType image/jpeg                "access plus 3 months"
+  ExpiresByType image/webp                "access plus 3 months"
+  ExpiresByType image/svg+xml             "access plus 3 months"
+  ExpiresByType image/x-icon              "access plus 1 year"
+</IfModule>
+
+# ─── HTTPS Redirect ──────────────────────────────────────────────────────────
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+
+  # Force HTTPS
+  RewriteCond %{HTTPS} off
+  RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+  # Remove trailing slash
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule ^(.*)/$ /$1 [L,R=301]
+
+  # Block access to config.php directly
+  RewriteRule ^config\.php$ - [F,L]
+</IfModule>
+
+# ─── Custom Error Pages ──────────────────────────────────────────────────────
+ErrorDocument 404 /404.php
+ErrorDocument 403 /404.php
+# ErrorDocument 500 /404.php  # Disabled to show actual 500 errors for debugging

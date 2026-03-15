@@ -1,0 +1,21 @@
+[15-Mar-2026 12:29:50 Asia/Jakarta] PHP Fatal error:  Uncaught PDOException: could not find driver in /tmp/cc-agent/64644610/project/config.php:185
+Stack trace:
+#0 /tmp/cc-agent/64644610/project/config.php(185): PDO->__construct()
+#1 Command line code(3): db()
+#2 {main}
+  thrown in /tmp/cc-agent/64644610/project/config.php on line 185
+2026-03-15 12:29:50 | Fatal Error: Uncaught PDOException: could not find driver in /tmp/cc-agent/64644610/project/config.php:185
+Stack trace:
+#0 /tmp/cc-agent/64644610/project/config.php(185): PDO->__construct()
+#1 Command line code(3): db()
+#2 {main}
+  thrown in /tmp/cc-agent/64644610/project/config.php on line 185
+
+2026-03-15 12:35:15 | Error [2]: mkdir(): Permission denied in /tmp/cc-agent/64644610/project/config.php on line 235
+2026-03-15 12:35:15 | Error [8192]: ini_set(): session.sid_length INI setting is deprecated in /tmp/cc-agent/64644610/project/config.php on line 251
+2026-03-15 12:35:15 | Error [8192]: ini_set(): session.sid_bits_per_character INI setting is deprecated in /tmp/cc-agent/64644610/project/config.php on line 252
+2026-03-15 12:35:15 | Error [2]: Undefined array key "REQUEST_URI" in /tmp/cc-agent/64644610/project/config.php on line 273
+[15-Mar-2026 12:35:15 Asia/Jakarta] PHP Warning:  Undefined array key "REQUEST_URI" in /tmp/cc-agent/64644610/project/config.php on line 273
+2026-03-15 12:35:15 | Error [8192]: urlencode(): Passing null to parameter #1 ($string) of type string is deprecated in /tmp/cc-agent/64644610/project/config.php on line 273
+2026-03-15 12:35:33 | Error [8]: file_put_contents(): Write of 66 bytes failed with errno=9 Bad file descriptor in Command line code on line 27
+[15-Mar-2026 12:35:33 Asia/Jakarta] PHP Notice:  file_put_contents(): Write of 66 bytes failed with errno=9 Bad file descriptor in Command line code on line 27
