@@ -266,8 +266,12 @@ textarea{resize:vertical;min-height:80px;}
 .divider{border:none;border-top:1px solid var(--border);margin:24px 0;}
 .badge{font-family:'JetBrains Mono',monospace;font-size:10px;padding:3px 10px;border-radius:100px;letter-spacing:1px;text-transform:uppercase;}
 .badge-ok{background:rgba(0,230,118,.1);border:1px solid rgba(0,230,118,.2);color:var(--ok);}
-.badge-err{background:rgba(255,69,96,.1);border:1px solid rgba(255,69,96,.2);color:var(--err);}
+.badge-err,.badge-red{background:rgba(255,69,96,.1);border:1px solid rgba(255,69,96,.2);color:var(--err);}
 .badge-warn{background:rgba(255,215,64,.1);border:1px solid rgba(255,215,64,.2);color:var(--warn);}
+.badge-teal{background:rgba(0,212,170,.08);border:1px solid rgba(0,212,170,.2);color:var(--a2);}
+.badge-amber{background:rgba(240,165,0,.1);border:1px solid rgba(240,165,0,.25);color:var(--a1);}
+.badge-purple{background:rgba(192,132,252,.08);border:1px solid rgba(192,132,252,.2);color:var(--purple);}
+.suc-box{background:rgba(0,230,118,.06);border:1px solid rgba(0,230,118,.15);border-left:3px solid var(--ok);border-radius:10px;padding:12px 16px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ok);line-height:1.9;margin-bottom:16px;animation:slideIn .3s ease;}
 .info-box{background:rgba(0,212,170,.06);border:1px solid rgba(0,212,170,.15);border-left:3px solid var(--a2);border-radius:10px;padding:12px 16px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--a2);line-height:1.9;margin-bottom:16px;animation:slideIn .3s ease;}
 .warn-box{background:rgba(255,215,64,.06);border:1px solid rgba(255,215,64,.15);border-left:3px solid var(--warn);border-radius:10px;padding:12px 16px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--warn);line-height:1.9;margin-bottom:16px;animation:slideIn .3s ease;}
 .err-box{background:rgba(255,69,96,.06);border:1px solid rgba(255,69,96,.15);border-left:3px solid var(--err);border-radius:10px;padding:12px 16px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--err);line-height:1.9;margin-bottom:16px;animation:slideIn .3s ease;}

@@ -90,25 +90,46 @@ $qclass=$qpct>=90?'danger':($qpct>=70?'warn':'');
 
     <!-- STATS -->
     <div class="stats-grid">
-      <div class="stat-card">
+      <div class="stat-card" style="border-top:2px solid rgba(240,165,0,.4);">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:10px;">
+          <div style="width:36px;height:36px;background:rgba(240,165,0,.1);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:16px;">⚡</div>
+          <?php if(!$quota['unlimited'] && $qpct>=70): ?>
+          <span class="badge <?= $qpct>=90?'badge-red':'badge-warn' ?>" style="font-size:8px;"><?= $qpct ?>%</span>
+          <?php elseif($quota['unlimited']): ?>
+          <span class="badge badge-purple" style="font-size:8px;">∞</span>
+          <?php endif; ?>
+        </div>
         <div class="sc-val" style="color:var(--a1);"><?= $quota['unlimited']?'∞':number_format($quota['remaining']) ?></div>
         <div class="sc-label">Rows Remaining</div>
-        <div class="sc-sub"><?= ($quota['unlimited']) ? 'Unlimited' : 'This month' ?></div>
+        <div class="sc-sub"><?= $quota['unlimited'] ? 'No monthly limit' : 'of '.number_format($total_limit).' total' ?></div>
       </div>
-      <div class="stat-card">
-        <div class="sc-val"><?= number_format($ms['jobs']) ?></div>
+      <div class="stat-card" style="border-top:2px solid rgba(0,212,170,.3);">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:10px;">
+          <div style="width:36px;height:36px;background:rgba(0,212,170,.1);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:16px;">🗂️</div>
+          <?php if($ms['jobs']>0): ?>
+          <span class="badge badge-teal" style="font-size:8px;">Active</span>
+          <?php endif; ?>
+        </div>
+        <div class="sc-val" style="color:var(--a2);"><?= number_format($ms['jobs']) ?></div>
         <div class="sc-label">Jobs This Month</div>
         <div class="sc-sub"><?= number_format($ms['rows']) ?> rows processed</div>
       </div>
-      <div class="stat-card">
+      <div class="stat-card" style="border-top:2px solid rgba(0,230,118,.3);">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:10px;">
+          <div style="width:36px;height:36px;background:rgba(0,230,118,.1);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:16px;">📄</div>
+        </div>
         <div class="sc-val" style="color:var(--ok);"><?= number_format($ms['files']) ?></div>
         <div class="sc-label">Files Updated</div>
         <div class="sc-sub">This month</div>
       </div>
-      <div class="stat-card">
-        <div class="sc-val" style="color:var(--a2);"><?= number_format($quota['rollover']) ?></div>
+      <div class="stat-card" style="border-top:2px solid rgba(192,132,252,.3);">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:10px;">
+          <div style="width:36px;height:36px;background:rgba(192,132,252,.1);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:16px;">🔄</div>
+          <?php if($quota['rollover']>0): ?><span class="badge badge-purple" style="font-size:8px;">Bonus</span><?php endif; ?>
+        </div>
+        <div class="sc-val" style="color:var(--purple);"><?= number_format($quota['rollover']) ?></div>
         <div class="sc-label">Rollover Balance</div>
-        <div class="sc-sub"><?= ($user['plan'] !== 'free') ? 'Carries to next month' : 'Not available on free' ?></div>
+        <div class="sc-sub"><?= ($user['plan'] !== 'free') ? 'Carries to next month' : 'Upgrade to unlock' ?></div>
       </div>
     </div>
 
@@ -148,74 +169,160 @@ $qclass=$qpct>=90?'danger':($qpct>=70?'warn':'');
 
     <!-- QUOTA BAR -->
     <?php if(!$quota['unlimited']): ?>
+    <?php
+      $resetDate = date('M j', strtotime('first day of next month'));
+      $daysLeft = (int)((strtotime('first day of next month') - time()) / 86400);
+    ?>
     <div class="card" style="margin-bottom:24px;">
-      <div class="card-title">📊 Monthly Quota</div>
-      <div class="quota-wrap">
-        <div class="quota-info">
-          <span>Used: <b><?= number_format($quota['used']) ?> rows</b></span>
-          <span>Limit: <b><?= number_format($quota['limit']) ?> + <?= number_format($quota['rollover']) ?> rollover</b></span>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
+        <div class="card-title" style="margin-bottom:0;">📊 Monthly Quota</div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted);">Resets <?= $resetDate ?> · <?= $daysLeft ?> day<?= $daysLeft!=1?'s':'' ?> left</span>
+          <span class="badge <?= $qpct>=90?'badge-red':($qpct>=70?'badge-warn':'badge-teal') ?>"><?= $qpct ?>% used</span>
         </div>
-        <div class="quota-track"><div class="quota-fill <?= $qclass ?>" style="width:<?= $qpct ?>%;"></div></div>
-        <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted);margin-top:8px;"><?= $qpct ?>% used &nbsp;·&nbsp; <?= number_format($quota['remaining']) ?> rows remaining</div>
       </div>
+
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px;">
+        <div style="background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:10px;padding:12px;text-align:center;">
+          <div style="font-family:'Syne',sans-serif;font-size:20px;font-weight:800;color:var(--a1);"><?= number_format($quota['used']) ?></div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-top:3px;">Used</div>
+        </div>
+        <div style="background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:10px;padding:12px;text-align:center;">
+          <div style="font-family:'Syne',sans-serif;font-size:20px;font-weight:800;color:var(--ok);"><?= number_format($quota['remaining']) ?></div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-top:3px;">Remaining</div>
+        </div>
+        <div style="background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:10px;padding:12px;text-align:center;">
+          <div style="font-family:'Syne',sans-serif;font-size:20px;font-weight:800;color:var(--text);"><?= number_format($total_limit) ?></div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-top:3px;">Total Limit</div>
+        </div>
+      </div>
+
+      <div style="position:relative;">
+        <div style="background:rgba(255,255,255,.05);border-radius:100px;height:10px;overflow:hidden;position:relative;">
+          <div class="quota-fill <?= $qclass ?>" style="width:<?= $qpct ?>%;height:100%;border-radius:100px;position:relative;">
+            <div style="position:absolute;right:0;top:50%;transform:translateY(-50%);width:12px;height:12px;border-radius:50%;background:inherit;box-shadow:0 0 8px currentColor;"></div>
+          </div>
+        </div>
+        <?php if($quota['rollover'] > 0): ?>
+        <?php $rolloverPct = min(100, round($quota['rollover']/$total_limit*100)); ?>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--a2);margin-top:5px;display:flex;align-items:center;gap:6px;">
+          <span style="display:inline-block;width:8px;height:3px;background:var(--a2);border-radius:2px;"></span>
+          Includes <?= number_format($quota['rollover']) ?> rollover rows from last month
+        </div>
+        <?php endif; ?>
+      </div>
+
       <?php if($user['plan']==='free'): ?>
-      <div class="warn-box" style="margin-top:12px;margin-bottom:0;">Free plan: <?= $quota['remaining'] ?> of 20 rows remaining. <a href="/landing/pricing.php" style="color:var(--a1);">Upgrade to Pro</a> for 500 rows/month with rollover.</div>
-      <?php elseif($qpct>=80): ?>
-      <div class="warn-box" style="margin-top:12px;margin-bottom:0;">You've used <?= $qpct ?>% of your monthly quota. <a href="/dashboard/billing.php" style="color:var(--a1);">Consider upgrading.</a></div>
+      <div class="warn-box" style="margin-top:14px;margin-bottom:0;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+        <span>Free plan: <?= number_format($quota['remaining']) ?> of 20 rows left this month.</span>
+        <a href="/landing/pricing.php" class="btn btn-amber btn-sm">Upgrade to Pro →</a>
+      </div>
+      <?php elseif($qpct>=90): ?>
+      <div class="err-box" style="margin-top:14px;margin-bottom:0;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+        <span>⚠ Critical: Only <?= number_format($quota['remaining']) ?> rows remaining!</span>
+        <a href="/dashboard/billing.php" class="btn btn-amber btn-sm">Upgrade Now →</a>
+      </div>
+      <?php elseif($qpct>=70): ?>
+      <div class="warn-box" style="margin-top:14px;margin-bottom:0;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+        <span>You've used <?= $qpct ?>% of your quota this month.</span>
+        <a href="/dashboard/billing.php" style="color:var(--a1);font-family:'JetBrains Mono',monospace;font-size:10px;">Consider upgrading →</a>
+      </div>
       <?php endif; ?>
     </div>
     <?php endif; ?>
 
     <!-- RECENT JOBS -->
     <div class="card">
-      <div class="card-title">📋 Recent Jobs</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
+        <div class="card-title" style="margin-bottom:0;">📋 Recent Jobs</div>
+        <?php if(!empty($jobs)): ?>
+        <a href="/tool/" class="btn btn-ghost btn-sm">+ New Job</a>
+        <?php endif; ?>
+      </div>
       <?php if(empty($jobs)): ?>
-      <div style="text-align:center;padding:32px;font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--muted);">No jobs yet. <a href="/tool/" style="color:var(--a1);">Run your first job →</a></div>
+      <div style="text-align:center;padding:48px 20px;">
+        <div style="font-size:40px;margin-bottom:12px;opacity:.5;">🚀</div>
+        <div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:700;color:#fff;margin-bottom:8px;">No jobs yet</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);margin-bottom:20px;line-height:1.8;">Upload a CSV and start replacing content in bulk across multiple files.</div>
+        <a href="/tool/" class="btn btn-amber">🚀 Run Your First Job →</a>
+      </div>
       <?php else: ?>
       <div class="table-wrap">
         <table class="data-table">
-          <thead><tr><th>Time</th><th>Type</th><th>CSV Rows</th><th>Files Updated</th><th>Job</th></tr></thead>
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Type</th>
+              <th>Rows</th>
+              <th>Files</th>
+              <th>Job Name</th>
+            </tr>
+          </thead>
           <tbody>
-          <?php foreach($jobs as $j):
+          <?php
+          $typeConfig = [
+            'csv_generator' => ['label'=>'CSV Gen',     'color'=>'#3b82f6', 'bg'=>'rgba(59,130,246,.1)',  'icon'=>'📊'],
+            'zip_manager'   => ['label'=>'ZIP Mgr',     'color'=>'#f59e0b', 'bg'=>'rgba(245,158,11,.1)',  'icon'=>'🗜️'],
+            'copy_rename'   => ['label'=>'Copy/Rename', 'color'=>'#10b981', 'bg'=>'rgba(16,185,129,.1)',  'icon'=>'📋'],
+            'autopilot'     => ['label'=>'Autopilot',   'color'=>'#c084fc', 'bg'=>'rgba(192,132,252,.1)', 'icon'=>'🤖'],
+          ];
+          $defaultType = ['label'=>'Bulk Replace', 'color'=>'var(--a2)', 'bg'=>'rgba(0,212,170,.08)', 'icon'=>'⚡'];
+          foreach($jobs as $j):
             $jtype = $j['job_type'] ?? 'bulk_replace';
-            $typeLabel = match($jtype) {
-              'csv_generator' => 'CSV Gen',
-              'zip_manager' => 'ZIP Mgr',
-              'copy_rename' => 'Copy/Rename',
-              'autopilot' => 'Autopilot',
-              default => 'Bulk Replace'
-            };
-            $typeColor = match($jtype) {
-              'csv_generator' => '#3b82f6',
-              'zip_manager' => '#f59e0b',
-              'copy_rename' => '#10b981',
-              'autopilot' => '#c084fc',
-              default => 'var(--a2)'
-            };
+            $tc = $typeConfig[$jtype] ?? $defaultType;
           ?>
           <tr>
-            <td><?= ago($j['created_at']) ?></td>
-            <td><span style="color:<?= $typeColor ?>;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;"><?= $typeLabel ?></span></td>
-            <td><span style="color:var(--a1);"><?= number_format($j['csv_rows']) ?></span></td>
-            <td><span style="color:var(--ok);"><?= number_format($j['files_updated']) ?></span></td>
-            <td style="color:var(--muted);"><?= htmlspecialchars($j['job_name']??'Untitled Job') ?></td>
+            <td style="color:var(--muted);white-space:nowrap;"><?= ago($j['created_at']) ?></td>
+            <td>
+              <span style="display:inline-flex;align-items:center;gap:5px;background:<?= $tc['bg'] ?>;color:<?= $tc['color'] ?>;border-radius:6px;padding:3px 8px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;">
+                <?= $tc['icon'] ?> <?= $tc['label'] ?>
+              </span>
+            </td>
+            <td>
+              <span style="color:var(--a1);font-weight:700;"><?= number_format($j['csv_rows']) ?></span>
+              <span style="color:var(--muted);font-size:10px;"> rows</span>
+            </td>
+            <td>
+              <span style="color:var(--ok);font-weight:700;"><?= number_format($j['files_updated']) ?></span>
+              <span style="color:var(--muted);font-size:10px;"> files</span>
+            </td>
+            <td style="color:var(--text);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="<?= htmlspecialchars($j['job_name']??'Untitled Job') ?>">
+              <?= htmlspecialchars($j['job_name']??'Untitled Job') ?>
+            </td>
           </tr>
           <?php endforeach; ?>
           </tbody>
         </table>
       </div>
+      <div style="padding:12px 0 0;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted);text-align:right;">
+        Showing last <?= count($jobs) ?> jobs · <a href="/dashboard/analytics.php" style="color:var(--a1);">View all analytics →</a>
+      </div>
       <?php endif; ?>
     </div>
 
-    <!-- SUPPORT -->
-    <div style="background:var(--card);border:1px solid rgba(0,212,170,.15);border-radius:16px;padding:24px;margin-top:24px;display:flex;align-items:center;gap:20px;flex-wrap:wrap;">
-      <div style="font-size:36px;">💬</div>
-      <div style="flex:1;">
-        <div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:700;color:#fff;margin-bottom:4px;">Need help?</div>
-        <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);">Direct support via Telegram. We usually respond within a few hours.</div>
+    <!-- QUICK ACTIONS + SUPPORT -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:24px;">
+      <div style="background:var(--card);border:1px solid rgba(240,165,0,.15);border-radius:16px;padding:24px;">
+        <div style="font-size:28px;margin-bottom:10px;">⚡</div>
+        <div style="font-family:'Syne',sans-serif;font-size:15px;font-weight:700;color:#fff;margin-bottom:6px;">Quick Actions</div>
+        <div style="display:flex;flex-direction:column;gap:6px;margin-top:12px;">
+          <a href="/tool/" style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:8px;background:rgba(240,165,0,.06);border:1px solid rgba(240,165,0,.15);font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--a1);text-decoration:none;transition:all .15s;" onmouseover="this.style.background='rgba(240,165,0,.1)'" onmouseout="this.style.background='rgba(240,165,0,.06)'">→ Open Bulk Replace Tool</a>
+          <?php if(hasAddonAccess($user['id'], 'csv-generator-pro')): ?>
+          <a href="/dashboard/csv_generator.php" style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:8px;background:rgba(59,130,246,.06);border:1px solid rgba(59,130,246,.15);font-family:'JetBrains Mono',monospace;font-size:11px;color:#3b82f6;text-decoration:none;transition:all .15s;" onmouseover="this.style.background='rgba(59,130,246,.1)'" onmouseout="this.style.background='rgba(59,130,246,.06)'">→ CSV Generator</a>
+          <?php endif; ?>
+          <a href="/dashboard/analytics.php" style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:8px;background:rgba(0,212,170,.05);border:1px solid rgba(0,212,170,.15);font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--a2);text-decoration:none;transition:all .15s;" onmouseover="this.style.background='rgba(0,212,170,.09)'" onmouseout="this.style.background='rgba(0,212,170,.05)'">→ View Analytics</a>
+        </div>
       </div>
-      <a href="<?= SUPPORT_TELEGRAM_URL ?>" target="_blank" class="btn btn-teal btn-sm">💬 Chat on Telegram</a>
+      <div style="background:var(--card);border:1px solid rgba(0,212,170,.15);border-radius:16px;padding:24px;display:flex;flex-direction:column;justify-content:space-between;">
+        <div>
+          <div style="font-size:28px;margin-bottom:10px;">💬</div>
+          <div style="font-family:'Syne',sans-serif;font-size:15px;font-weight:700;color:#fff;margin-bottom:6px;">Need help?</div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);line-height:1.8;">Direct support via Telegram. We usually respond within a few hours.</div>
+        </div>
+        <a href="<?= SUPPORT_TELEGRAM_URL ?>" target="_blank" class="btn btn-teal btn-sm" style="margin-top:16px;justify-content:center;">💬 Chat on Telegram</a>
+      </div>
     </div>
+    <style>@media(max-width:600px){.quick-support-grid{grid-template-columns:1fr!important;}}</style>
 
   </div>
 </div>
