@@ -415,16 +415,19 @@ $licenseGen  = new LicenseGenerator($pdo);
 $auditLogger = new AuditLogger($pdo);
 
 try {
-    // Idempotency guard — skip duplicate sale
+    // Idempotency guard — lock + check duplicate sale atomically to prevent concurrent webhook processing
     if ($sale_id) {
-        $dupCheck = $pdo->prepare("SELECT id FROM users WHERE gumroad_sale_id = ? LIMIT 1");
+        $pdo->beginTransaction();
+        $dupCheck = $pdo->prepare("SELECT id FROM users WHERE gumroad_sale_id = ? LIMIT 1 FOR UPDATE");
         $dupCheck->execute([$sale_id]);
         if ($dupCheck->fetch()) {
+            $pdo->rollBack();
             error_log("Gumroad Ping: Duplicate sale_id {$sale_id} — already processed, skipping");
             $monitor->end(200);
             http_response_code(200);
             exit('ok');
         }
+        $pdo->rollBack();
     }
 
     $us = $pdo->prepare("SELECT id, name, plan as old_plan FROM users WHERE email=?");

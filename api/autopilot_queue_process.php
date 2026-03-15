@@ -57,16 +57,26 @@ try {
         exit;
     }
 
-    // Get pending domains from queue
+    // Claim a chunk atomically to prevent double-processing when concurrent requests occur
+    $pdo->beginTransaction();
     $stmt = $pdo->prepare("
         SELECT id, domain
         FROM autopilot_queue
         WHERE job_id = ? AND status = 'pending'
         ORDER BY created_at ASC
         LIMIT ?
+        FOR UPDATE SKIP LOCKED
     ");
     $stmt->execute([$jobId, $chunkSize]);
     $pendingItems = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    if (!empty($pendingItems)) {
+        $claimIds = array_column($pendingItems, 'id');
+        $placeholders = implode(',', array_fill(0, count($claimIds), '?'));
+        $claimStmt = $pdo->prepare("UPDATE autopilot_queue SET status = 'processing' WHERE id IN ($placeholders) AND status = 'pending'");
+        $claimStmt->execute($claimIds);
+    }
+    $pdo->commit();
 
     if (empty($pendingItems)) {
         // All done! Mark job as completed
@@ -132,10 +142,6 @@ try {
         $domain = strtolower(trim($item['domain']));
 
         try {
-            // Mark as processing
-            $stmt = $pdo->prepare("UPDATE autopilot_queue SET status = 'processing' WHERE id = ?");
-            $stmt->execute([$queueId]);
-
             // Set per-domain timeout
             $startTime = time();
             $timeoutSeconds = 30; // 30s max per domain

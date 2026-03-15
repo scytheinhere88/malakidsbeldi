@@ -43,16 +43,19 @@ $auditLogger->setAdminId($_SESSION['admin_id'] ?? 1);
 
 // Handle edit form submit
 if($_SERVER['REQUEST_METHOD']==='POST'&&isset($_POST['uid'])){
+  if(!csrf_verify()){ $err='Security validation failed.'; goto show_page; }
   $uid=(int)$_POST['uid'];
+
+  $oldData = db()->prepare("SELECT plan, billing_cycle, plan_expires_at, status, rollover_balance FROM users WHERE id=?");
+  $oldData->execute([$uid]);
+  $oldUser = $oldData->fetch();
+  if(!$oldUser){ $err='User not found.'; goto show_page; }
+
   $plan=$_POST['plan']??'free';
   $billing=$_POST['billing_cycle']??'none';
   $expires=$_POST['plan_expires_at']?:null;
   $status=$_POST['status']??'active';
   $rollover=(int)($_POST['rollover_balance']??0);
-
-  $oldData = db()->prepare("SELECT plan, billing_cycle, plan_expires_at, status, rollover_balance FROM users WHERE id=?");
-  $oldData->execute([$uid]);
-  $oldUser = $oldData->fetch();
 
   db()->prepare("UPDATE users SET plan=?,billing_cycle=?,plan_expires_at=?,status=?,rollover_balance=? WHERE id=?")
     ->execute([$plan,$billing,$expires,$status,$rollover,$uid]);
@@ -77,8 +80,11 @@ if($_SERVER['REQUEST_METHOD']==='POST'&&isset($_POST['uid'])){
 
 // Handle admin password reset
 if($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['reset_pw_uid'])){
+  if(!csrf_verify()){ $err='Security validation failed.'; goto show_page; }
   $uid  = (int)$_POST['reset_pw_uid'];
   $pass = trim($_POST['new_password'] ?? '');
+  $existsCheck = db()->prepare("SELECT id FROM users WHERE id=?"); $existsCheck->execute([$uid]);
+  if(!$existsCheck->fetch()){ $err='User not found.'; goto show_page; }
   if($uid && strlen($pass) >= 6){
     $hash = password_hash($pass, PASSWORD_BCRYPT);
     db()->prepare("UPDATE users SET password=?, reset_token=NULL, reset_token_expires=NULL WHERE id=?")
@@ -98,9 +104,12 @@ if($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['reset_pw_uid'])){
 
 // Handle addon grant/revoke
 if($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['addon_action'])){
+  if(!csrf_verify()){ $err='Security validation failed.'; goto show_page; }
   $uid     = (int)($_POST['addon_uid'] ?? 0);
   $slug    = $_POST['addon_slug'] ?? '';
   $action  = $_POST['addon_action'] ?? '';
+  $addonUserCheck = db()->prepare("SELECT id FROM users WHERE id=?"); $addonUserCheck->execute([$uid]);
+  if(!$uid || !$addonUserCheck->fetch()){ $err='User not found.'; goto show_page; }
   if($uid && $slug && in_array($action,['grant','revoke'])){
     // Ensure addon row exists
     db()->prepare("INSERT IGNORE INTO addons(slug,name) VALUES(?,?)")
@@ -137,6 +146,7 @@ if($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['addon_action'])){
   header('Location: /admin/users.php?edit='.$uid.'&msg='.urlencode($msg)); exit;
 }
 
+show_page:
 // Edit mode
 $edit=null;$edit_notes=[];
 if(isset($_GET['edit'])){
@@ -177,6 +187,7 @@ $users->execute($params);$ulist=$users->fetchAll();
   <div class="card" style="margin-bottom:24px;border-color:rgba(240,165,0,.2);">
     <div class="card-title">✏️ Edit User: <?= htmlspecialchars($edit['name']) ?> (<?= htmlspecialchars($edit['email']) ?>)</div>
     <form method="POST" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+      <?= csrf_field() ?>
       <input type="hidden" name="uid" value="<?= $edit['id'] ?>">
       <div class="form-field"><label class="form-label">Plan</label>
         <select name="plan"><?php foreach(['free','pro','platinum','lifetime'] as $p): ?><option value="<?= $p ?>" <?= $edit['plan']===$p?'selected':'' ?>><?= ucfirst($p) ?></option><?php endforeach; ?></select>
