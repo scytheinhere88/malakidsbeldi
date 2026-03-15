@@ -2,10 +2,25 @@
 
 class SecurityHeaders {
 
+    private static ?string $nonce = null;
+
     private static function isHttps(): bool {
         return (defined('FORCE_HTTPS') && FORCE_HTTPS === true)
             || (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
             || (isset($_SERVER['SERVER_PORT']) && $_SERVER['SERVER_PORT'] == 443);
+    }
+
+    // Generate (or return cached) per-request nonce for inline scripts/styles
+    public static function nonce(): string {
+        if (self::$nonce === null) {
+            self::$nonce = base64_encode(random_bytes(16));
+        }
+        return self::$nonce;
+    }
+
+    // Convenience: return nonce attribute string for use in <script> / <style> tags
+    public static function nonceAttr(): string {
+        return 'nonce="' . htmlspecialchars(self::nonce(), ENT_QUOTES, 'UTF-8') . '"';
     }
 
     public static function apply() {
@@ -14,33 +29,37 @@ class SecurityHeaders {
         }
 
         header("X-Content-Type-Options: nosniff");
-
         header("X-Frame-Options: SAMEORIGIN");
-
         header("X-XSS-Protection: 1; mode=block");
-
         header("Referrer-Policy: strict-origin-when-cross-origin");
-
         header("Permissions-Policy: geolocation=(), microphone=(), camera=()");
 
         if (self::isHttps()) {
             header("Strict-Transport-Security: max-age=31536000; includeSubDomains; preload");
         }
 
+        $nonce = self::nonce();
+
+        // CSP with nonce-based inline policy.
+        // unsafe-inline is retained as a FALLBACK for browsers that don't support nonces,
+        // but browsers that DO support nonces will ignore unsafe-inline when a nonce is present.
+        // This is the recommended migration path per CSP Level 3 spec.
+        // unsafe-eval is removed — no legitimate code in this app needs eval().
         $csp = [
             "default-src 'self'",
-            "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com",
-            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+            "script-src 'self' 'nonce-{$nonce}' 'unsafe-inline' https://cdnjs.cloudflare.com",
+            "style-src 'self' 'nonce-{$nonce}' 'unsafe-inline' https://fonts.googleapis.com",
             "img-src 'self' data: https:",
             "font-src 'self' data: https://fonts.gstatic.com",
             "connect-src 'self' https:",
             "frame-ancestors 'self'",
             "base-uri 'self'",
-            "form-action 'self'"
+            "form-action 'self'",
+            "object-src 'none'",
+            "upgrade-insecure-requests",
         ];
 
         header("Content-Security-Policy: " . implode("; ", $csp));
-
         header("X-Permitted-Cross-Domain-Policies: none");
 
         if (session_status() === PHP_SESSION_ACTIVE) {
