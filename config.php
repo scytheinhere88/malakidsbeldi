@@ -191,6 +191,8 @@ const GUMROAD_PRODUCT_MAP = [
     'copy-rename-addon'     => ['plan'=>'pro',      'cycle'=>'addon',    'months'=>0,    'slug'=>'copy-rename-addon',    'addon'=>'copy-rename'],
     'ai-autopilot-bundle'   => ['plan'=>'pro',      'cycle'=>'addon',    'months'=>0,    'slug'=>'ai-autopilot-bundle',  'addon'=>'autopilot'],
     'all-in-one-bundle'     => ['plan'=>'platinum',  'cycle'=>'addon',    'months'=>3,    'slug'=>'all-in-one-bundle',    'addon'=>'premium-bundle'],
+    // --- Typo alias (Gumroad permalink has missing 's') ---
+    'lifetime-acces-plan'       => ['plan'=>'lifetime',  'cycle'=>'lifetime', 'months'=>9999, 'slug'=>'lifetime-access-plan'],
     // --- Legacy product names (fallback) ---
     'Pro Automation Plan'       => ['plan'=>'pro',     'cycle'=>'monthly',  'months'=>1,    'slug'=>'pro-monthly-plan'],
     'Platinum Agency Plan'      => ['plan'=>'platinum', 'cycle'=>'monthly',  'months'=>1,    'slug'=>'platinum-monthly-plan'],
