@@ -16,24 +16,23 @@ require_once dirname(__DIR__).'/includes/WebhookRetryQueue.php';
 // Token priority (most secure first):
 //   1. X-Gumroad-Signature header (HMAC — webhook mode)
 //   2. X-Ping-Token header (preferred — not logged)
-//   3. ?token= query string (legacy — still supported but logs warning)
+//   3. ?token= query string (required for resource_subscriptions — Gumroad tidak support custom headers)
 // ============================================
 
 $configToken   = defined('GUMROAD_PING_TOKEN') ? GUMROAD_PING_TOKEN : '';
 $signature     = $_SERVER['HTTP_X_GUMROAD_SIGNATURE'] ?? '';
 $webhookSecret = defined('GUMROAD_WEBHOOK_SECRET') ? GUMROAD_WEBHOOK_SECRET : '';
 
-// Prefer header-based token over query string to avoid server log exposure
+// Gumroad resource_subscriptions POST ke URL terdaftar tanpa support custom headers.
+// Header X-Ping-Token dipakai untuk manual Ping / custom senders.
+// Query string token (?token=) dipakai oleh resource_subscriptions yang terdaftar via gumroad_setup.php.
 $pingTokenHeader = $_SERVER['HTTP_X_PING_TOKEN'] ?? '';
 $pingTokenQuery  = $_GET['token'] ?? '';
 
 if (!empty($pingTokenHeader)) {
     $pingToken = $pingTokenHeader;
 } elseif (!empty($pingTokenQuery)) {
-    // Query string tokens are permanently exposed in server access logs — reject entirely
-    error_log('Gumroad: Token passed via query string is not accepted. Use X-Ping-Token header instead.');
-    http_response_code(403);
-    exit('Unauthorized');
+    $pingToken = $pingTokenQuery;
 } else {
     $pingToken = '';
 }
@@ -234,9 +233,10 @@ if (!empty($endedAt) || $resourceName === 'subscription_ended') {
 }
 
 // ============================================
-// SUBSCRIPTION RENEWAL HANDLER
+// SUBSCRIPTION RENEWAL / UPDATE HANDLER
 // Triggered by resource_subscriptions: "subscription_updated"
-// Extends plan_expires_at on successful renewal
+// Handles: renewal, upgrade, downgrade
+// Syncs billing_cycle from Gumroad "recurrence" field (new_plan.recurrence)
 // ============================================
 if ($resourceName === 'subscription_updated' && empty($cancelledAt) && empty($endedAt)) {
     $pdo         = db();
@@ -250,15 +250,23 @@ if ($resourceName === 'subscription_updated' && empty($cancelledAt) && empty($en
         $renewedUser = $userStmt->fetch();
 
         if ($renewedUser && $renewedUser['plan'] !== 'free' && $renewedUser['billing_cycle'] !== 'lifetime') {
-            $currentExpiry = $renewedUser['plan_expires_at'] ? strtotime($renewedUser['plan_expires_at']) : time();
-            $baseTime = max($currentExpiry, time());
+            // Sync billing_cycle from Gumroad new_plan.recurrence if available
+            // Gumroad sends: monthly / quarterly / biannually / yearly / every_two_years
+            $newPlanData  = isset($data['new_plan']) && is_string($data['new_plan']) ? json_decode($data['new_plan'], true) : ($data['new_plan'] ?? null);
+            $recurrence   = $newPlanData['recurrence'] ?? ($data['recurrence'] ?? $renewedUser['billing_cycle']);
+            $syncedCycle  = match(strtolower((string)$recurrence)) {
+                'yearly', 'annual'   => 'annual',
+                'monthly'            => 'monthly',
+                default              => $renewedUser['billing_cycle'],
+            };
+            $extensionMonths = ($syncedCycle === 'annual') ? 12 : 1;
 
-            $cycle = $renewedUser['billing_cycle'];
-            $extensionMonths = ($cycle === 'annual' || $cycle === 'yearly') ? 12 : 1;
+            $currentExpiry = $renewedUser['plan_expires_at'] ? strtotime($renewedUser['plan_expires_at']) : time();
+            $baseTime  = max($currentExpiry, time());
             $newExpiry = date('Y-m-d H:i:s', strtotime("+{$extensionMonths} months", $baseTime));
 
-            $pdo->prepare("UPDATE users SET plan_expires_at=?, subscription_cancelled_at=NULL WHERE id=?")
-                ->execute([$newExpiry, $renewedUser['id']]);
+            $pdo->prepare("UPDATE users SET plan_expires_at=?, billing_cycle=?, subscription_cancelled_at=NULL WHERE id=?")
+                ->execute([$newExpiry, $syncedCycle, $renewedUser['id']]);
 
             if ($license_key) {
                 $pdo->prepare("UPDATE licenses SET status='active', expires_at=? WHERE gumroad_license=? OR license_key=?")
@@ -269,10 +277,16 @@ if ($resourceName === 'subscription_updated' && empty($cancelledAt) && empty($en
             $auditLogger->log('subscription_renewed', 'payment', 'success', [
                 'target_type'  => 'user',
                 'target_id'    => $renewedUser['id'],
-                'request_data' => ['sale_id' => $sale_id, 'new_expiry' => $newExpiry, 'plan' => $renewedUser['plan']]
+                'request_data' => [
+                    'sale_id'      => $sale_id,
+                    'new_expiry'   => $newExpiry,
+                    'plan'         => $renewedUser['plan'],
+                    'billing_cycle'=> $syncedCycle,
+                    'recurrence'   => $recurrence,
+                ]
             ]);
 
-            error_log("Gumroad renewal: Extended {$renewEmail} plan to {$newExpiry}");
+            error_log("Gumroad renewal: Extended {$renewEmail} plan to {$newExpiry} [{$syncedCycle}]");
         } else {
             error_log("Gumroad renewal: User not found or no action needed for {$renewEmail}");
         }

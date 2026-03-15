@@ -382,5 +382,4 @@ try {
   </div>
 </div>
 </div>
-<script src="https://gumroad.com/js/gumroad.js"></script>
 </body></html>

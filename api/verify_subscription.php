@@ -29,6 +29,7 @@ try {
             billing_cycle,
             plan_expires_at,
             gumroad_sale_id,
+            subscription_cancelled_at,
             email,
             created_at
         FROM users
@@ -41,14 +42,18 @@ try {
         throw new Exception('Subscription data unavailable');
     }
 
+    $hasSaleId = !empty($userData['gumroad_sale_id']);
+
     $response = [
-        'success' => true,
-        'plan' => $userData['plan'],
-        'billing_cycle' => $userData['billing_cycle'],
-        'expires_at' => $userData['plan_expires_at'],
-        'email' => $userData['email'],
-        'is_active' => true,
-        'message' => 'Subscription verified'
+        'success'            => true,
+        'plan'               => $userData['plan'],
+        'billing_cycle'      => $userData['billing_cycle'],
+        'expires_at'         => $userData['plan_expires_at'],
+        'email'              => $userData['email'],
+        'is_active'          => true,
+        'has_payment_record' => $hasSaleId,
+        'cancelled_at'       => $userData['subscription_cancelled_at'],
+        'message'            => 'Subscription verified'
     ];
 
     if ($userData['plan'] !== 'free' && $userData['plan_expires_at']) {
@@ -59,8 +64,12 @@ try {
             $response['is_active'] = false;
             $response['message'] = 'Subscription expired';
 
-            $pdo->prepare("UPDATE users SET plan='free', billing_cycle='none' WHERE id=?")
+            $pdo->prepare("UPDATE users SET plan='free', billing_cycle='none', plan_expires_at=NULL WHERE id=?")
                 ->execute([$user['id']]);
+
+            $response['plan']          = 'free';
+            $response['billing_cycle'] = 'none';
+            $response['expires_at']    = null;
         } else {
             $daysRemaining = ceil(($expiresTimestamp - $now) / 86400);
             $response['days_remaining'] = $daysRemaining;
@@ -68,8 +77,8 @@ try {
     }
 
     if ($userData['plan'] === 'lifetime') {
-        $response['is_active'] = true;
-        $response['message'] = 'Lifetime subscription active';
+        $response['is_active']      = true;
+        $response['message']        = 'Lifetime subscription active';
         $response['days_remaining'] = 'unlimited';
     }
 
