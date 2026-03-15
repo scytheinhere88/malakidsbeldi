@@ -4,6 +4,7 @@ require_once dirname(__DIR__).'/includes/Analytics.php';
 require_once dirname(__DIR__).'/includes/MonitoringMiddleware.php';
 require_once dirname(__DIR__).'/includes/EmailSystem.php';
 require_once dirname(__DIR__).'/includes/AuditLogger.php';
+require_once dirname(__DIR__).'/includes/WebhookRetryQueue.php';
 
 header('Content-Type: application/json');
 
@@ -152,13 +153,25 @@ try {
 
                 if ($userInfo) {
                     $emailSystem = new EmailSystem($pdo);
+
+                    $emailSystem->sendFromTemplate('license_delivery', $userInfo['email'], $userInfo['name'], [
+                        'user_name'    => $userInfo['name'],
+                        'product_name' => ucfirst($plan) . ' Plan',
+                        'license_key'  => $licenseKey,
+                        'plan_name'    => ucfirst($plan) . ' Plan',
+                        'login_url'    => APP_URL . '/auth/login.php',
+                        'billing_url'  => APP_URL . '/dashboard/billing.php',
+                        'is_new_user'  => false
+                    ], $userId, 2);
+
                     $emailSystem->sendFromTemplate('invoice', $userInfo['email'], $userInfo['name'], [
-                        'user_name' => $userInfo['name'],
-                        'order_id' => $orderId,
-                        'plan_name' => ucfirst($plan) . ' Plan',
-                        'amount' => '$' . number_format($planPrice, 2),
-                        'date' => date('F d, Y'),
-                        'invoice_url' => APP_URL . '/dashboard/billing.php'
+                        'user_name'    => $userInfo['name'],
+                        'order_id'     => $orderId,
+                        'plan_name'    => ucfirst($plan) . ' Plan',
+                        'amount'       => '$' . number_format($planPrice, 2),
+                        'date'         => date('F d, Y'),
+                        'billing_cycle'=> ucfirst($billingCycle),
+                        'invoice_url'  => APP_URL . '/dashboard/billing.php'
                     ], $userId, 3, ['order_id' => $orderId, 'amount' => $planPrice]);
                 }
             } catch (Exception $e) {
@@ -228,16 +241,44 @@ try {
 
         case 'subscription_cancelled':
         case 'subscription_expired':
-            $licenseKey = $attributes['first_subscription_item']['license_key'] ?? '';
+            $licenseKey   = $attributes['first_subscription_item']['license_key'] ?? '';
+            $cancelReason = $event === 'subscription_expired' ? 'expired' : 'cancelled';
 
-            $pdo->prepare("UPDATE licenses SET status = 'cancelled' WHERE license_key = ?")->execute([$licenseKey]);
+            $pdo->prepare("UPDATE licenses SET status = ? WHERE license_key = ?")
+                ->execute([$cancelReason, $licenseKey]);
 
-            $license = $pdo->prepare("SELECT user_id FROM licenses WHERE license_key = ?");
-            $license->execute([$licenseKey]);
-            $licenseData = $license->fetch();
+            $licenseStmt = $pdo->prepare("SELECT user_id FROM licenses WHERE license_key = ?");
+            $licenseStmt->execute([$licenseKey]);
+            $licenseData = $licenseStmt->fetch();
 
             if ($licenseData) {
-                $pdo->prepare("UPDATE users SET plan = 'free', billing_cycle = 'none' WHERE id = ?")->execute([$licenseData['user_id']]);
+                $userInfoStmt = $pdo->prepare("SELECT name, email, plan FROM users WHERE id = ?");
+                $userInfoStmt->execute([$licenseData['user_id']]);
+                $cancelledUser = $userInfoStmt->fetch(PDO::FETCH_ASSOC);
+
+                $oldPlan = $cancelledUser['plan'] ?? 'pro';
+
+                $pdo->prepare("UPDATE users SET plan = 'free', billing_cycle = 'none', plan_expires_at = NULL WHERE id = ?")
+                    ->execute([$licenseData['user_id']]);
+
+                $auditLogger->setUserId($licenseData['user_id']);
+                $auditLogger->logPlanChange($oldPlan, 'free', 'lemonsqueezy_' . $cancelReason);
+
+                if ($cancelledUser) {
+                    $emailSystem = new EmailSystem($pdo);
+                    try {
+                        $emailSystem->sendFromTemplate('plan_expired', $cancelledUser['email'], $cancelledUser['name'], [
+                            'user_name'   => $cancelledUser['name'],
+                            'plan_name'   => ucfirst($oldPlan) . ' Plan',
+                            'expiry_date' => date('F d, Y'),
+                            'reason'      => $cancelReason
+                        ], $licenseData['user_id'], 2);
+                    } catch (Exception $emailEx) {
+                        error_log("LemonSqueezy {$cancelReason}: failed to send email - " . $emailEx->getMessage());
+                    }
+                }
+
+                error_log("LemonSqueezy {$cancelReason}: downgraded user #{$licenseData['user_id']} from {$oldPlan} to free");
             }
 
             break;
@@ -320,13 +361,60 @@ try {
             }
 
             break;
+
+        case 'order_refunded':
+            $refundEmail   = $attributes['user_email'] ?? '';
+            $refundOrderId = $attributes['identifier'] ?? ($attributes['order_number'] ?? '');
+            $refundItems   = $attributes['first_order_item'] ?? [];
+            $refundLicense = $refundItems['license_key'] ?? '';
+
+            if ($refundLicense) {
+                $pdo->prepare("UPDATE licenses SET status = 'revoked', revoked_at = NOW() WHERE license_key = ?")
+                    ->execute([$refundLicense]);
+            }
+
+            if ($refundEmail) {
+                $refundUserStmt = $pdo->prepare("SELECT id, name, plan FROM users WHERE email = ? LIMIT 1");
+                $refundUserStmt->execute([$refundEmail]);
+                $refundUser = $refundUserStmt->fetch(PDO::FETCH_ASSOC);
+
+                if ($refundUser) {
+                    $refundOldPlan = $refundUser['plan'];
+
+                    $pdo->prepare("UPDATE users SET plan = 'free', billing_cycle = 'none', plan_expires_at = NULL WHERE id = ?")
+                        ->execute([$refundUser['id']]);
+
+                    $auditLogger->setUserId($refundUser['id']);
+                    $auditLogger->logPlanChange($refundOldPlan, 'free', 'lemonsqueezy_refund');
+                    $auditLogger->log('license_revoked', 'payment', 'success', [
+                        'target_type'   => 'license',
+                        'target_id'     => $refundLicense,
+                        'error_message' => 'Revoked due to refund',
+                        'request_data'  => ['order_id' => $refundOrderId, 'email' => $refundEmail]
+                    ]);
+
+                    try {
+                        $emailSystem = new EmailSystem($pdo);
+                        $emailSystem->sendFromTemplate('plan_expired', $refundUser['email'], $refundUser['name'], [
+                            'user_name'   => $refundUser['name'],
+                            'plan_name'   => ucfirst($refundOldPlan) . ' Plan',
+                            'expiry_date' => date('F d, Y'),
+                            'reason'      => 'refund'
+                        ], $refundUser['id'], 2);
+                    } catch (Exception $emailEx) {
+                        error_log("LemonSqueezy refund: failed to send email - " . $emailEx->getMessage());
+                    }
+
+                    error_log("LemonSqueezy refund: downgraded user #{$refundUser['id']} from {$refundOldPlan} to free");
+                }
+            }
+            break;
     }
 
     $monitor->end(200);
     echo json_encode(['success' => true, 'event' => $event]);
 
 } catch (Exception $e) {
-    require_once __DIR__ . '/../includes/WebhookRetryQueue.php';
     $retryQueue = new WebhookRetryQueue($pdo);
 
     $retryQueue->queue('lemonsqueezy', $payload, [

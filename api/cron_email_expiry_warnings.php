@@ -5,6 +5,8 @@ require_once __DIR__ . '/../includes/MonitoringMiddleware.php';
 
 header('Content-Type: application/json');
 
+requireCronLock('cron_email_expiry_warnings');
+
 $pdo = db();
 $monitor = MonitoringMiddleware::start($pdo, 'cron_expiry_warnings', null);
 

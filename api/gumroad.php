@@ -5,6 +5,7 @@ require_once dirname(__DIR__).'/includes/EmailSystem.php';
 require_once dirname(__DIR__).'/includes/Analytics.php';
 require_once dirname(__DIR__).'/includes/LicenseGenerator.php';
 require_once dirname(__DIR__).'/includes/AuditLogger.php';
+require_once dirname(__DIR__).'/includes/WebhookRetryQueue.php';
 
 // ============================================
 // GUMROAD WEBHOOK SECURITY
@@ -50,11 +51,71 @@ if (!hash_equals($expectedSignature, $signature)) {
 // PROCESS WEBHOOK DATA
 // ============================================
 $data = $_POST;
-$sale_id = $data['sale_id'] ?? '';
-$email = strtolower(trim($data['email'] ?? ''));
-$product_id = $data['product_id'] ?? '';
-$product_name = $data['product_name'] ?? '';
-$license_key = $data['license_key'] ?? '';
+$sale_id       = $data['sale_id'] ?? '';
+$email         = strtolower(trim($data['email'] ?? ''));
+$product_id    = $data['product_id'] ?? '';
+$product_name  = $data['product_name'] ?? '';
+$license_key   = $data['license_key'] ?? '';
+$refunded      = filter_var($data['refunded'] ?? false, FILTER_VALIDATE_BOOLEAN);
+$chargebacked  = filter_var($data['chargebacked'] ?? false, FILTER_VALIDATE_BOOLEAN);
+
+// ============================================
+// REFUND / CHARGEBACK HANDLER
+// ============================================
+if ($refunded || $chargebacked) {
+    $pdo = db();
+    $auditLogger = new AuditLogger($pdo);
+    $emailSystem = new EmailSystem($pdo);
+    $reason = $chargebacked ? 'chargeback' : 'refund';
+
+    try {
+        // Revoke license
+        if ($license_key) {
+            $pdo->prepare("UPDATE licenses SET status = 'revoked', revoked_at = NOW() WHERE gumroad_license = ? OR license_key = ?")
+                ->execute([$license_key, $license_key]);
+        }
+
+        // Find user and downgrade to free
+        $userStmt = $pdo->prepare("SELECT id, name, plan FROM users WHERE email = ? LIMIT 1");
+        $userStmt->execute([$email]);
+        $refundedUser = $userStmt->fetch();
+
+        if ($refundedUser) {
+            $oldPlan = $refundedUser['plan'];
+            $pdo->prepare("UPDATE users SET plan = 'free', billing_cycle = 'none', plan_expires_at = NULL WHERE id = ?")
+                ->execute([$refundedUser['id']]);
+
+            $auditLogger->setUserId($refundedUser['id']);
+            $auditLogger->logPlanChange($oldPlan, 'free', 'gumroad_' . $reason);
+            $auditLogger->log('license_revoked', 'payment', 'success', [
+                'target_type'  => 'license',
+                'target_id'    => $license_key,
+                'error_message'=> "Revoked due to {$reason}",
+                'request_data' => ['sale_id' => $sale_id, 'email' => $email]
+            ]);
+
+            try {
+                $emailSystem->sendFromTemplate('plan_expired', $email, $refundedUser['name'], [
+                    'user_name'   => $refundedUser['name'],
+                    'plan_name'   => ucfirst($oldPlan) . ' Plan',
+                    'expiry_date' => date('F d, Y'),
+                    'reason'      => $reason
+                ], $refundedUser['id'], 2);
+            } catch (Exception $emailEx) {
+                error_log("Gumroad refund: failed to send revocation email - " . $emailEx->getMessage());
+            }
+
+            error_log("Gumroad {$reason}: downgraded user {$email} from {$oldPlan} to free, license revoked");
+        } else {
+            error_log("Gumroad {$reason}: user not found for email {$email}");
+        }
+    } catch (Exception $e) {
+        error_log("Gumroad {$reason} handler error: " . $e->getMessage());
+    }
+
+    http_response_code(200);
+    exit('ok');
+}
 
 if (!$email || (!$product_id && !$product_name) || !$license_key) {
     http_response_code(400);
@@ -84,7 +145,7 @@ $productMap = [
     'platinum-yearly-plan' => ['plan' => 'platinum', 'cycle' => 'annual', 'months' => 12],
 
     // Lifetime (via permalink)
-    'lifetime-acces-plan' => ['plan' => 'lifetime', 'cycle' => 'lifetime', 'months' => 9999],
+    'lifetime-access-plan' => ['plan' => 'lifetime', 'cycle' => 'lifetime', 'months' => 9999],
 
     // Add-ons - Individual (via permalink)
     'csv-generator-addon' => ['plan' => 'pro', 'cycle' => 'addon', 'months' => 1, 'addon' => 'csv-generator-pro'],
@@ -337,7 +398,6 @@ try {
     exit('ok');
 
 } catch (Exception $e) {
-    require_once __DIR__ . '/../includes/WebhookRetryQueue.php';
     $retryQueue = new WebhookRetryQueue($pdo);
 
     $retryQueue->queue('gumroad', $rawBody, [

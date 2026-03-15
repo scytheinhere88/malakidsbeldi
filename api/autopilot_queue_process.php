@@ -37,7 +37,22 @@ try {
     $job = $stmt->fetch(PDO::FETCH_ASSOC);
 
     if (!$job) {
-        echo json_encode(['ok'=>false,'msg'=>'Job not found']);
+        http_response_code(404);
+        echo json_encode(['ok'=>false,'msg'=>'Job not found or does not belong to your account']);
+        exit;
+    }
+
+    // If already completed, return final data immediately
+    if ($job['status'] === 'completed') {
+        $finalData = json_decode($job['result_data'] ?? '{}', true) ?? [];
+        echo json_encode([
+            'ok'        => true,
+            'completed' => true,
+            'progress'  => 100,
+            'total'     => $job['total_domains'],
+            'processed' => $job['total_domains'],
+            'data'      => $finalData
+        ]);
         exit;
     }
 

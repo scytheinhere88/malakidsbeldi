@@ -5,6 +5,8 @@ require_once __DIR__ . '/../includes/MonitoringMiddleware.php';
 
 header('Content-Type: application/json');
 
+requireCronLock('cron_usage_warnings');
+
 $pdo = db();
 $monitor = MonitoringMiddleware::start($pdo, 'cron_usage_warnings', null);
 

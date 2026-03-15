@@ -6,6 +6,8 @@ require_once __DIR__ . '/../includes/CronHeartbeat.php';
 
 header('Content-Type: application/json');
 
+requireCronLock('cron_backup');
+
 $pdo = db();
 $monitor = MonitoringMiddleware::start($pdo, 'cron_backup', null);
 $heartbeat = CronHeartbeat::getInstance($pdo);

@@ -4,6 +4,7 @@ require_once __DIR__ . '/../includes/WebhookRetryQueue.php';
 require_once __DIR__ . '/../includes/MonitoringMiddleware.php';
 
 requireCronAuth();
+requireCronLock('cron_webhook_retry');
 
 header('Content-Type: application/json');
 

@@ -61,19 +61,21 @@ $GLOBALS['_autopilot_content'] = $content;
 $GLOBALS['_autopilot_domains'] = $domains;
 
 if (empty($content) || empty($refDomain)) {
+    http_response_code(400);
     echo json_encode(['ok'=>false,'msg'=>'Missing template_content or domain']);
     exit;
 }
 
 // ── Result builder ────────────────────────────────────────────────────────────
 function buildResult(array $mapping, array $undetected, string $method): string {
+    global $domains, $keywordHint, $userHints;
+
     $clean = [];
     foreach ($mapping as $field => $arr) {
         $c = array_values(array_unique(array_filter((array)$arr, fn($s)=>strlen(trim($s))>=2)));
         if ($c) $clean[$field] = $c;
     }
 
-    // Extract detected domain (first from namalink or namalinkurl)
     $detectedDomain = '';
     if (!empty($clean['namalink'][0])) {
         $detectedDomain = $clean['namalink'][0];
@@ -81,34 +83,65 @@ function buildResult(array $mapping, array $undetected, string $method): string 
         $detectedDomain = parse_url($clean['namalinkurl'][0], PHP_URL_HOST) ?: '';
     }
 
-    // Build detected data object (first value of each field)
     $detectedData = [
-        'domain'  => $detectedDomain,
-        'city'    => $clean['daerah'][0] ?? '',
-        'address' => $clean['alamat'][0] ?? '',
-        'phone'   => $clean['notelp'][0] ?? '',
-        'email'   => $clean['email'][0] ?? '',
-        'postal'  => $clean['kodepos'][0] ?? '',
-        'province'=> $clean['provinsi'][0] ?? '',
+        'domain'      => $detectedDomain,
+        'city'        => $clean['daerah'][0] ?? '',
+        'address'     => $clean['alamat'][0] ?? '',
+        'phone'       => $clean['notelp'][0] ?? '',
+        'email'       => $clean['email'][0] ?? '',
+        'postal'      => $clean['kodepos'][0] ?? '',
+        'province'    => $clean['provinsi'][0] ?? '',
         'institution' => $clean['namainstansi'][0] ?? '',
     ];
+
+    $pdo = db();
+    $uid = currentUser()['id'] ?? null;
+    $jobId = null;
+
+    // Persist job to database so queue_process can run
+    try {
+        $jobId = bin2hex(random_bytes(16));
+        $totalDomains = count($GLOBALS['_autopilot_domains'] ?? []);
+
+        $stmt = $pdo->prepare("
+            INSERT INTO autopilot_jobs
+                (id, user_id, total_domains, processed_domains, status, keyword_hint, user_hints, result_data, created_at, updated_at)
+            VALUES
+                (?, ?, ?, 0, 'pending', ?, ?, NULL, NOW(), NOW())
+        ");
+        $stmt->execute([$jobId, $uid, $totalDomains, $keywordHint ?? '', $userHints ?? '']);
+
+        // Seed queue entries for all domains
+        $domainList = $GLOBALS['_autopilot_domains'] ?? [];
+        foreach ($domainList as $dom) {
+            $queueId = bin2hex(random_bytes(16));
+            $queueStmt = $pdo->prepare("
+                INSERT INTO autopilot_queue (id, job_id, domain, status, created_at)
+                VALUES (?, ?, ?, 'pending', NOW())
+            ");
+            $queueStmt->execute([$queueId, $jobId, strtolower(trim($dom))]);
+        }
+    } catch (Exception $e) {
+        error_log("Autopilot job persist failed: " . $e->getMessage());
+        $jobId = null;
+    }
 
     // Track analytics
     try {
         require_once dirname(__DIR__).'/includes/Analytics.php';
-        $analytics = new Analytics(db());
-        $uid = currentUser()['id'] ?? null;
+        $analytics = new Analytics($pdo);
         $analytics->trackEvent('autopilot_detected', 'feature_usage', $uid, [
-            'fields_found' => count($clean),
-            'total_strings' => array_sum(array_map('count', $clean)),
-            'method' => $method,
+            'fields_found'    => count($clean),
+            'total_strings'   => array_sum(array_map('count', $clean)),
+            'method'          => $method,
             'template_length' => strlen($GLOBALS['_autopilot_content'] ?? ''),
-            'domain_count' => count($GLOBALS['_autopilot_domains'] ?? [])
+            'domain_count'    => count($GLOBALS['_autopilot_domains'] ?? [])
         ]);
     } catch(Exception $e) {}
 
     return json_encode([
         'ok'              => true,
+        'job_id'          => $jobId,
         'detected_domain' => $detectedDomain,
         'detected_data'   => $detectedData,
         'mapping'         => $clean,

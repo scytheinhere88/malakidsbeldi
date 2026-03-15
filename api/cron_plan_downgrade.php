@@ -19,6 +19,7 @@ require_once dirname(__DIR__) . '/includes/EmailSystem.php';
 require_once dirname(__DIR__) . '/includes/AuditLogger.php';
 
 requireCronAuth();
+requireCronLock('cron_plan_downgrade');
 
 set_time_limit(300);
 ini_set('memory_limit', '256M');
@@ -112,7 +113,7 @@ try {
                         ]);
 
                         // Send email notification about grace period
-                        $emailSystem = new EmailSystem($pdo);
+                        $emailSystem = new EmailSystem($db);
                         $emailSystem->sendFromTemplate('plan_expiry_1day', $user['email'], $user['name'], [
                             'user_name' => $user['name'],
                             'plan_name' => ucfirst($user['plan']) . ' Plan',

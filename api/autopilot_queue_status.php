@@ -68,24 +68,70 @@ try {
     $queueStats = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     $stats = [
-        'pending' => 0,
+        'pending'    => 0,
         'processing' => 0,
-        'completed' => 0,
-        'failed' => 0
+        'completed'  => 0,
+        'failed'     => 0
     ];
 
     foreach ($queueStats as $stat) {
         $stats[$stat['status']] = (int)$stat['count'];
     }
 
+    // Auto-recover domains stuck in 'processing' state for > 5 minutes
+    $pdo->prepare("
+        UPDATE autopilot_queue
+        SET status = 'pending'
+        WHERE job_id = ?
+          AND status = 'processing'
+          AND processed_at IS NULL
+          AND created_at < DATE_SUB(NOW(), INTERVAL 5 MINUTE)
+    ")->execute([$jobId]);
+
+    // If all queue items are done but job status is not completed, fix it
+    if ($stats['pending'] === 0 && $stats['processing'] === 0 && $job['total_domains'] > 0) {
+        $doneCount = $stats['completed'] + $stats['failed'];
+        if ($doneCount >= $job['total_domains']) {
+            $finalStmt = $pdo->prepare("SELECT result_data FROM autopilot_queue WHERE job_id = ? AND status = 'completed'");
+            $finalStmt->execute([$jobId]);
+            $allResults = $finalStmt->fetchAll(PDO::FETCH_COLUMN);
+
+            $finalData = [];
+            foreach ($allResults as $jsonData) {
+                $data = json_decode($jsonData, true);
+                if ($data && isset($data['namalink'])) {
+                    $finalData[$data['namalink']] = $data;
+                }
+            }
+
+            $pdo->prepare("
+                UPDATE autopilot_jobs
+                SET status = 'completed', completed_at = NOW(), result_data = ?, processed_domains = ?, updated_at = NOW()
+                WHERE id = ?
+            ")->execute([json_encode($finalData), $doneCount, $jobId]);
+
+            echo json_encode([
+                'ok'          => true,
+                'status'      => 'completed',
+                'progress'    => 100,
+                'total'       => $job['total_domains'],
+                'processed'   => $doneCount,
+                'queue_stats' => $stats,
+                'data'        => $finalData,
+                'created_at'  => $job['created_at']
+            ]);
+            exit;
+        }
+    }
+
     echo json_encode([
-        'ok' => true,
-        'status' => $job['status'],
-        'progress' => $progress,
-        'total' => $job['total_domains'],
-        'processed' => $job['processed_domains'],
+        'ok'          => true,
+        'status'      => $job['status'],
+        'progress'    => $progress,
+        'total'       => $job['total_domains'],
+        'processed'   => $job['processed_domains'],
         'queue_stats' => $stats,
-        'created_at' => $job['created_at']
+        'created_at'  => $job['created_at']
     ]);
 
 } catch (Exception $e) {

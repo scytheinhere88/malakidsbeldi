@@ -18,6 +18,8 @@
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../includes/AuditLogger.php';
 
+requireCronLock('cron_advanced_cleanup');
+
 requireCronAuth();
 
 header('Content-Type: application/json');

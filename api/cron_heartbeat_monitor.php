@@ -11,6 +11,7 @@ require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../includes/CronHeartbeat.php';
 
 requireCronAuth();
+requireCronLock('cron_heartbeat_monitor');
 
 header('Content-Type: application/json');
 

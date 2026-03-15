@@ -117,7 +117,7 @@ const PLAN_DATA = [
   'free'     => ['name'=>'Free',     'limit'=>20,   'rollover'=>false,'pm'=>0,    'pa'=>0,     'pl'=>0,     'color'=>'#454568','badge'=>'','has_addons'=>false,'gumroad_monthly'=>'','gumroad_annual'=>'','gumroad_lifetime'=>'','lemon_monthly'=>'','lemon_annual'=>'','lemon_lifetime'=>''],
   'pro'      => ['name'=>'Pro',      'limit'=>500,  'rollover'=>true, 'pm'=>19.9, 'pa'=>190.9, 'pl'=>0,     'color'=>'#f0a500','badge'=>'Popular','has_addons'=>false,'gumroad_monthly'=>'pro-monthly-plan','gumroad_annual'=>'pro-yearly-plan','gumroad_lifetime'=>'','lemon_monthly'=>'1382565','lemon_annual'=>'1382587','lemon_lifetime'=>''],
   'platinum' => ['name'=>'Platinum', 'limit'=>1500, 'rollover'=>true, 'pm'=>69.9, 'pa'=>671.9, 'pl'=>0,     'color'=>'#00d4aa','badge'=>'Best Value','has_addons'=>true,'gumroad_monthly'=>'platinum-monthly-plan','gumroad_annual'=>'platinum-yearly-plan','gumroad_lifetime'=>'','lemon_monthly'=>'1382591','lemon_annual'=>'1382594','lemon_lifetime'=>''],
-  'lifetime' => ['name'=>'Lifetime', 'limit'=>-1,   'rollover'=>true, 'pm'=>0,    'pa'=>0,     'pl'=>469.9, 'color'=>'#c084fc','badge'=>'Forever','has_addons'=>true,'gumroad_monthly'=>'','gumroad_annual'=>'','gumroad_lifetime'=>'lifetime-acces-plan','lemon_monthly'=>'','lemon_annual'=>'','lemon_lifetime'=>'1382596'],
+  'lifetime' => ['name'=>'Lifetime', 'limit'=>-1,   'rollover'=>true, 'pm'=>0,    'pa'=>0,     'pl'=>469.9, 'color'=>'#c084fc','badge'=>'Forever','has_addons'=>true,'gumroad_monthly'=>'','gumroad_annual'=>'','gumroad_lifetime'=>'lifetime-access-plan','lemon_monthly'=>'','lemon_annual'=>'','lemon_lifetime'=>'1382596'],
 ];
 
 const ADDON_DATA = [
@@ -365,4 +365,44 @@ function require_csrf(): void {
     http_response_code(403);
     die(json_encode(['error' => 'CSRF validation failed. Please refresh the page and try again.']));
   }
+}
+
+// ============================================
+// DISTRIBUTED CRON LOCK (MySQL GET_LOCK)
+// Prevents race conditions when cron runs twice simultaneously
+// ============================================
+function acquireCronLock(string $lockName, int $timeoutSeconds = 0): bool {
+  try {
+    $pdo = db();
+    $stmt = $pdo->prepare("SELECT GET_LOCK(?, ?) AS locked");
+    $stmt->execute([$lockName, $timeoutSeconds]);
+    $result = $stmt->fetch();
+    return (int)($result['locked'] ?? 0) === 1;
+  } catch (Exception $e) {
+    error_log("acquireCronLock failed for '{$lockName}': " . $e->getMessage());
+    return false;
+  }
+}
+
+function releaseCronLock(string $lockName): void {
+  try {
+    $pdo = db();
+    $pdo->prepare("SELECT RELEASE_LOCK(?)")->execute([$lockName]);
+  } catch (Exception $e) {
+    error_log("releaseCronLock failed for '{$lockName}': " . $e->getMessage());
+  }
+}
+
+function requireCronLock(string $lockName): void {
+  if (!acquireCronLock($lockName, 0)) {
+    error_log("Cron '{$lockName}' already running — skipped duplicate execution");
+    if (php_sapi_name() !== 'cli') {
+      header('Content-Type: application/json');
+    }
+    echo json_encode(['success' => false, 'skipped' => true, 'reason' => 'Already running']);
+    exit(0);
+  }
+  register_shutdown_function(function() use ($lockName) {
+    releaseCronLock($lockName);
+  });
 }
