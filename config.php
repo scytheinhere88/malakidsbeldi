@@ -304,19 +304,25 @@ function ss(){
     || (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
     || (($_SERVER['SERVER_PORT'] ?? 80) == 443)
     || (!empty($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https' && (defined('TRUST_PROXY') && TRUST_PROXY === true));
-  $sessdir = '/home/bulkreplacetool.com/tmp/sessions';
+  $sessdir = $_ENV['SESSION_SAVE_PATH'] ?? '';
 
-  // Only try to create directory if not in production/already running
-  if(!is_dir($sessdir) && !headers_sent()) {
-    @mkdir($sessdir, 0700, true);
+  if($sessdir) {
+    if(!is_dir($sessdir) && !headers_sent()) {
+      @mkdir($sessdir, 0700, true);
+    }
+    if(!is_dir($sessdir) || !is_writable($sessdir)) {
+      $sessdir = '';
+    }
+  }
+
+  if(!$sessdir) {
+    $sessdir = sys_get_temp_dir();
   }
 
   // Set session configuration BEFORE session_start
   if(!headers_sent()){
-    if(is_dir($sessdir) && is_writable($sessdir)){
+    if(is_writable($sessdir)){
       ini_set('session.save_path', $sessdir);
-    } elseif(is_writable(sys_get_temp_dir())) {
-      ini_set('session.save_path', sys_get_temp_dir());
     }
     ini_set('session.cookie_httponly',  1);
     ini_set('session.cookie_secure',    $https ? 1 : 0);

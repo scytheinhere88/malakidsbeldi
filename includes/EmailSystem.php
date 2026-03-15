@@ -43,16 +43,22 @@ class EmailSystem {
     }
 
     public function sendFromTemplate($templateKey, $toEmail, $toName, $variables, $userId = null, $priority = 5, $metadata = null) {
-        $stmt = $this->pdo->prepare("
-            SELECT subject, body_html, body_text
-            FROM email_templates
-            WHERE template_key = :key AND is_active = 1
-        ");
-        $stmt->execute(['key' => $templateKey]);
-        $template = $stmt->fetch(PDO::FETCH_ASSOC);
+        try {
+            $stmt = $this->pdo->prepare("
+                SELECT subject, body_html, body_text
+                FROM email_templates
+                WHERE template_key = :key AND is_active = 1
+            ");
+            $stmt->execute(['key' => $templateKey]);
+            $template = $stmt->fetch(PDO::FETCH_ASSOC);
+        } catch (Exception $e) {
+            error_log("EmailSystem: failed to query email_templates for '{$templateKey}': " . $e->getMessage());
+            return false;
+        }
 
         if (!$template) {
-            throw new Exception("Email template '{$templateKey}' not found");
+            error_log("EmailSystem: template '{$templateKey}' not found or inactive in email_templates table. Verify the template exists and is_active=1.");
+            return false;
         }
 
         if ($userId) {

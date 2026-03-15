@@ -30,9 +30,10 @@ $pingTokenQuery  = $_GET['token'] ?? '';
 if (!empty($pingTokenHeader)) {
     $pingToken = $pingTokenHeader;
 } elseif (!empty($pingTokenQuery)) {
-    // Legacy query string token — warn in logs, token appears in server access logs
-    error_log('SECURITY WARNING: Gumroad ping token passed via query string. Switch to X-Ping-Token header to prevent token exposure in server logs.');
-    $pingToken = $pingTokenQuery;
+    // Query string tokens are permanently exposed in server access logs — reject entirely
+    error_log('Gumroad: Token passed via query string is not accepted. Use X-Ping-Token header instead.');
+    http_response_code(403);
+    exit('Unauthorized');
 } else {
     $pingToken = '';
 }
