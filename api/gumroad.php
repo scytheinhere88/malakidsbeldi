@@ -8,49 +8,50 @@ require_once dirname(__DIR__).'/includes/AuditLogger.php';
 require_once dirname(__DIR__).'/includes/WebhookRetryQueue.php';
 
 // ============================================
-// GUMROAD WEBHOOK SECURITY
+// GUMROAD PING / WEBHOOK SECURITY
+// Gumroad sekarang pakai "Ping" bukan webhook.
+// Ping mengirim POST data yang sama dengan webhook lama,
+// tapi TANPA signature header.
+// Keamanan: pakai secret token di URL query string.
+// URL format: /api/gumroad.php?token=YOUR_PING_TOKEN
 // ============================================
-// Verify signature to prevent fake payment requests
-// Documentation: https://help.gumroad.com/article/76-webhook-security
 
-if (empty(GUMROAD_WEBHOOK_SECRET) || GUMROAD_WEBHOOK_SECRET === 'your-gumroad-webhook-secret-here') {
-    error_log('CRITICAL: GUMROAD_WEBHOOK_SECRET not configured or using default value');
-    http_response_code(503);
-    header('Content-Type: application/json');
-    die(json_encode([
-        'success' => false,
-        'error' => 'Webhook system not configured',
-        'message' => 'Payment processing is temporarily unavailable'
-    ]));
-}
+$pingToken     = $_GET['token'] ?? '';
+$configToken   = defined('GUMROAD_PING_TOKEN') ? GUMROAD_PING_TOKEN : '';
+$signature     = $_SERVER['HTTP_X_GUMROAD_SIGNATURE'] ?? '';
+$webhookSecret = defined('GUMROAD_WEBHOOK_SECRET') ? GUMROAD_WEBHOOK_SECRET : '';
 
-$rawBody = file_get_contents('php://input');
-$signature = $_SERVER['HTTP_X_GUMROAD_SIGNATURE'] ?? '';
+$isWebhook = !empty($signature) && !empty($webhookSecret);
+$isPing    = !empty($configToken) && !empty($pingToken);
 
-if (empty($signature)) {
-    error_log('Gumroad webhook: Missing signature header');
+if (!$isWebhook && !$isPing) {
+    error_log('Gumroad: Missing auth — no signature and no ping token. Configure GUMROAD_PING_TOKEN or GUMROAD_WEBHOOK_SECRET.');
     http_response_code(403);
-    exit('Missing signature');
+    exit('Unauthorized');
 }
 
-$expectedSignature = hash_hmac('sha256', $rawBody, GUMROAD_WEBHOOK_SECRET);
-
-if (!hash_equals($expectedSignature, $signature)) {
-    error_log('Gumroad webhook: Invalid signature');
-    $auditLogger = new AuditLogger(db());
-    $auditLogger->log('webhook_failed', 'security', 'blocked', [
-        'target_type' => 'webhook',
-        'target_id' => 'gumroad',
-        'error_message' => 'Invalid signature - potential security breach'
-    ]);
-    http_response_code(403);
-    exit('Invalid signature');
+// Validate based on auth method
+if ($isWebhook) {
+    $rawBody = file_get_contents('php://input');
+    $expected = hash_hmac('sha256', $rawBody, $webhookSecret);
+    if (!hash_equals($expected, $signature)) {
+        error_log('Gumroad webhook: Invalid signature');
+        http_response_code(403);
+        exit('Invalid signature');
+    }
+} elseif ($isPing) {
+    if (!hash_equals($configToken, $pingToken)) {
+        error_log('Gumroad Ping: Invalid token');
+        http_response_code(403);
+        exit('Invalid token');
+    }
 }
 
 // ============================================
-// PROCESS WEBHOOK DATA
+// PROCESS DATA
+// Gumroad Ping sends POST fields (same as webhook)
 // ============================================
-$data = $_POST;
+$data          = $_POST;
 $sale_id       = $data['sale_id'] ?? '';
 $email         = strtolower(trim($data['email'] ?? ''));
 $product_id    = $data['product_id'] ?? '';
@@ -63,10 +64,10 @@ $chargebacked  = filter_var($data['chargebacked'] ?? false, FILTER_VALIDATE_BOOL
 // REFUND / CHARGEBACK HANDLER
 // ============================================
 if ($refunded || $chargebacked) {
-    $pdo = db();
+    $pdo         = db();
     $auditLogger = new AuditLogger($pdo);
     $emailSystem = new EmailSystem($pdo);
-    $reason = $chargebacked ? 'chargeback' : 'refund';
+    $reason      = $chargebacked ? 'chargeback' : 'refund';
 
     try {
         $userStmt = $pdo->prepare("SELECT id, name, plan FROM users WHERE email = ? LIMIT 1");
@@ -82,10 +83,8 @@ if ($refunded || $chargebacked) {
                     $pdo->prepare("UPDATE licenses SET status = 'revoked', revoked_at = NOW() WHERE gumroad_license = ? OR license_key = ?")
                         ->execute([$license_key, $license_key]);
                 }
-
                 $pdo->prepare("UPDATE users SET plan = 'free', billing_cycle = 'none', plan_expires_at = NULL WHERE id = ?")
                     ->execute([$refundedUser['id']]);
-
                 $pdo->commit();
             } catch (Exception $txEx) {
                 $pdo->rollBack();
@@ -95,10 +94,10 @@ if ($refunded || $chargebacked) {
             $auditLogger->setUserId($refundedUser['id']);
             $auditLogger->logPlanChange($oldPlan, 'free', 'gumroad_' . $reason);
             $auditLogger->log('license_revoked', 'payment', 'success', [
-                'target_type'  => 'license',
-                'target_id'    => $license_key,
-                'error_message'=> "Revoked due to {$reason}",
-                'request_data' => ['sale_id' => $sale_id, 'email' => $email]
+                'target_type'   => 'license',
+                'target_id'     => $license_key,
+                'error_message' => "Revoked due to {$reason}",
+                'request_data'  => ['sale_id' => $sale_id, 'email' => $email]
             ]);
 
             try {
@@ -112,7 +111,7 @@ if ($refunded || $chargebacked) {
                 error_log("Gumroad refund: failed to send revocation email - " . $emailEx->getMessage());
             }
 
-            error_log("Gumroad {$reason}: downgraded user {$email} from {$oldPlan} to free, license revoked");
+            error_log("Gumroad {$reason}: downgraded user {$email} from {$oldPlan} to free");
         } else {
             error_log("Gumroad {$reason}: user not found for email {$email}");
         }
@@ -125,6 +124,7 @@ if ($refunded || $chargebacked) {
 }
 
 if (!$email || (!$product_id && !$product_name) || !$license_key) {
+    error_log("Gumroad Ping: Missing required fields — email={$email} product_id={$product_id} product_name={$product_name} license_key=" . substr($license_key, 0, 8));
     http_response_code(400);
     exit('Missing required fields');
 }
@@ -133,19 +133,18 @@ if (!$email || (!$product_id && !$product_name) || !$license_key) {
 $product_identifier = $product_name ?: $product_id;
 
 // ============================================
-// DETECT PLAN FROM PRODUCT ID
+// DETECT PLAN FROM PRODUCT
 // ============================================
-$plan = 'free';
-$cycle = 'none';
-$months = 1;
-$amount = 0;
+$plan      = 'free';
+$cycle     = 'none';
+$months    = 1;
+$amount    = 0;
+$addonSlug = null;
 
-// Resolve product using centralized map from config.php
 $resolved = resolveGumroadProduct($product_identifier)
     ?? resolveGumroadProduct($product_id)
     ?? resolveGumroadProduct($product_name);
 
-$addonSlug = null;
 if ($resolved) {
     $plan      = $resolved['plan'];
     $cycle     = $resolved['cycle'];
@@ -154,7 +153,7 @@ if ($resolved) {
 }
 
 if ($plan === 'free') {
-    error_log("Gumroad webhook: Unknown product: {$product_identifier} (product_id: {$product_id}, product_name: {$product_name})");
+    error_log("Gumroad Ping: Unknown product '{$product_identifier}' (product_id: {$product_id}) — ignoring");
     http_response_code(200);
     exit('ok');
 }
@@ -171,20 +170,21 @@ $amount = $priceData[$plan][$cycle] ?? (float)str_replace(',', '', $data['price'
 // ============================================
 // FIND OR CREATE USER
 // ============================================
-$pdo = db();
-$monitor = MonitoringMiddleware::start($pdo, 'webhook_gumroad', null);
+$pdo         = db();
+$rawBody     = $rawBody ?? http_build_query($data);
+$monitor     = MonitoringMiddleware::start($pdo, 'webhook_gumroad', null);
 $emailSystem = new EmailSystem($pdo);
-$analytics = new Analytics($pdo);
-$licenseGen = new LicenseGenerator($pdo);
+$analytics   = new Analytics($pdo);
+$licenseGen  = new LicenseGenerator($pdo);
 $auditLogger = new AuditLogger($pdo);
 
 try {
-    // Duplicate sale detection — idempotency guard
+    // Idempotency guard — skip duplicate sale
     if ($sale_id) {
         $dupCheck = $pdo->prepare("SELECT id FROM users WHERE gumroad_sale_id = ? LIMIT 1");
         $dupCheck->execute([$sale_id]);
         if ($dupCheck->fetch()) {
-            error_log("Gumroad webhook: Duplicate sale_id {$sale_id} — already processed, skipping");
+            error_log("Gumroad Ping: Duplicate sale_id {$sale_id} — already processed, skipping");
             $monitor->end(200);
             http_response_code(200);
             exit('ok');
@@ -195,148 +195,119 @@ try {
     $us->execute([$email]);
     $u = $us->fetch();
 
-    $userId = null;
-    $userName = $data['full_name'] ?? 'New User';
+    $userId    = null;
+    $userName  = $data['full_name'] ?? 'New User';
     $isNewUser = false;
-    $oldPlan = 'free';
+    $oldPlan   = 'free';
 
-    // Generate custom license key
-    $existingLicense = $licenseGen->checkExistingLicense($sale_id);
+    // Generate or reuse system license key
+    $existingLicense  = $licenseGen->checkExistingLicense($sale_id);
     $customLicenseKey = $existingLicense;
 
     if (!$existingLicense) {
         $customLicenseKey = $licenseGen->generateLicense($product_id, $sale_id, $email);
-
         $licenseGen->saveLicense(
             $customLicenseKey,
             $product_id,
             $sale_id,
             $email,
             [
-                'product_name' => $product_name,
-                'full_name' => $userName,
+                'product_name'    => $product_name,
+                'full_name'       => $userName,
                 'gumroad_license' => $license_key,
-                'price' => $data['price'] ?? null,
-                'currency' => $data['currency'] ?? 'USD'
+                'price'           => $data['price'] ?? null,
+                'currency'        => $data['currency'] ?? 'USD'
             ]
         );
-
-        error_log("Gumroad webhook: Generated license {$customLicenseKey} for sale {$sale_id}");
+        error_log("Gumroad Ping: Generated license {$customLicenseKey} for sale {$sale_id}");
     } else {
-        error_log("Gumroad webhook: Using existing license {$customLicenseKey} for sale {$sale_id}");
+        error_log("Gumroad Ping: Reusing existing license {$customLicenseKey} for sale {$sale_id}");
     }
 
-    // Use transaction for atomic user/license update
     $pdo->beginTransaction();
 
     try {
         if ($u) {
-            // Update existing user
-            $userId = $u['id'];
+            $userId   = $u['id'];
             $userName = $u['name'];
-            $oldPlan = $u['old_plan'] ?? 'free';
+            $oldPlan  = $u['old_plan'] ?? 'free';
             $pdo->prepare("UPDATE users SET plan=?, billing_cycle=?, plan_expires_at=?, gumroad_license=?, gumroad_sale_id=? WHERE id=?")
                 ->execute([$plan, $cycle, $expires, $license_key, $sale_id, $userId]);
-            error_log("Gumroad webhook: Updated user {$email} to {$plan} plan");
+            error_log("Gumroad Ping: Updated existing user {$email} to {$plan} plan");
 
             $auditLogger->setUserId($userId);
-            $auditLogger->logPlanChange($oldPlan, $plan, 'gumroad_purchase');
-            $auditLogger->logPayment($sale_id, $amount ?? 0, 'success', [
-                'plan' => $plan,
-                'cycle' => $cycle,
-                'product' => $product_identifier,
+            $auditLogger->logPlanChange($oldPlan, $plan, 'gumroad_ping_purchase');
+            $auditLogger->logPayment($sale_id, $amount, 'success', [
+                'plan'        => $plan,
+                'cycle'       => $cycle,
+                'product'     => $product_identifier,
                 'license_key' => $license_key
             ]);
         } else {
-            // Auto-create account
             $isNewUser = true;
-            $pass = password_hash(bin2hex(random_bytes(16)), PASSWORD_BCRYPT);
+            $pass      = password_hash(bin2hex(random_bytes(16)), PASSWORD_BCRYPT);
             $pdo->prepare("INSERT INTO users(name, email, password, plan, billing_cycle, plan_expires_at, gumroad_license, gumroad_sale_id, created_at) VALUES(?,?,?,?,?,?,?,?,NOW())")
                 ->execute([$userName, $email, $pass, $plan, $cycle, $expires, $license_key, $sale_id]);
             $userId = (int)$pdo->lastInsertId();
-            error_log("Gumroad webhook: Created new user {$email} with {$plan} plan");
+            error_log("Gumroad Ping: Created new user {$email} with {$plan} plan (id={$userId})");
 
             $auditLogger->setUserId($userId);
-            $auditLogger->log('user_created_from_webhook', 'payment', 'success', [
-                'target_type' => 'user',
-                'target_id' => $userId,
-                'request_data' => [
-                    'email' => $email,
-                    'plan' => $plan,
-                    'sale_id' => $sale_id,
-                    'gateway' => 'gumroad'
-                ]
+            $auditLogger->log('user_created_from_ping', 'payment', 'success', [
+                'target_type'  => 'user',
+                'target_id'    => $userId,
+                'request_data' => ['email' => $email, 'plan' => $plan, 'sale_id' => $sale_id]
             ]);
-            $auditLogger->logPayment($sale_id, $amount ?? 0, 'success', [
-                'plan' => $plan,
-                'cycle' => $cycle,
-                'product' => $product_identifier,
-                'is_new_user' => true
+            $auditLogger->logPayment($sale_id, $amount, 'success', [
+                'plan'         => $plan,
+                'cycle'        => $cycle,
+                'product'      => $product_identifier,
+                'is_new_user'  => true
             ]);
         }
 
-        // Activate addon if purchased
+        // Activate addons if this is an addon/bundle purchase
         if ($addonSlug && $userId) {
             try {
-                // Get all slugs this addon unlocks (bundles unlock multiple)
-                require_once dirname(__DIR__).'/config.php';
                 $unlockedSlugs = getAddonSlugs($addonSlug);
-
                 foreach ($unlockedSlugs as $slug) {
                     $checkAddon = $pdo->prepare("SELECT id FROM user_addons WHERE user_id=? AND addon_slug=?");
                     $checkAddon->execute([$userId, $slug]);
-
                     if (!$checkAddon->fetch()) {
                         $pdo->prepare("INSERT INTO user_addons(user_id, addon_slug, purchased_at, gumroad_sale_id) VALUES(?,?,NOW(),?)")
                             ->execute([$userId, $slug, $sale_id]);
-                        error_log("Gumroad webhook: Activated addon '{$slug}' for user {$email}");
+                        error_log("Gumroad Ping: Activated addon '{$slug}' for user {$email}");
 
                         $auditLogger->log('addon_purchased', 'payment', 'success', [
-                            'target_type' => 'addon',
-                            'target_id' => $slug,
-                            'request_data' => [
-                                'sale_id' => $sale_id,
-                                'gateway' => 'gumroad',
-                                'product' => $product_identifier
-                            ]
+                            'target_type'  => 'addon',
+                            'target_id'    => $slug,
+                            'request_data' => ['sale_id' => $sale_id, 'product' => $product_identifier]
                         ]);
                     }
                 }
             } catch (Exception $addonEx) {
-                error_log("Gumroad webhook: Failed to activate addon - " . $addonEx->getMessage());
+                error_log("Gumroad Ping: Failed to activate addon - " . $addonEx->getMessage());
             }
         }
 
-        // Auto-activate license if user was created/updated successfully
+        // Auto-activate system license
         if ($userId && $customLicenseKey) {
             try {
                 $activationResult = $licenseGen->activateLicense($customLicenseKey, $userId, $email);
                 if ($activationResult['success']) {
-                    error_log("Gumroad webhook: Auto-activated license {$customLicenseKey} for user {$userId}");
+                    error_log("Gumroad Ping: Auto-activated license {$customLicenseKey} for user {$userId}");
                 } else {
-                    error_log("Gumroad webhook: License activation warning - " . ($activationResult['error'] ?? 'unknown'));
+                    error_log("Gumroad Ping: License activation warning - " . ($activationResult['error'] ?? 'unknown'));
                 }
             } catch (Exception $licEx) {
-                error_log("Gumroad webhook: License activation failed - " . $licEx->getMessage());
+                error_log("Gumroad Ping: License activation failed - " . $licEx->getMessage());
             }
         }
 
         $pdo->commit();
+
     } catch (Exception $e) {
         $pdo->rollBack();
-        error_log("Gumroad webhook transaction failed: " . $e->getMessage());
-
-        $auditLogger->log('webhook_transaction_failed', 'payment', 'error', [
-            'target_type' => 'webhook',
-            'target_id' => 'gumroad',
-            'error_message' => $e->getMessage(),
-            'request_data' => [
-                'sale_id' => $sale_id,
-                'email' => $email,
-                'product' => $product_identifier
-            ]
-        ]);
-
+        error_log("Gumroad Ping transaction failed: " . $e->getMessage());
         http_response_code(500);
         die(json_encode(['success' => false, 'error' => 'Database transaction failed']));
     }
@@ -346,19 +317,14 @@ try {
         'plan_purchase',
         $oldPlan,
         $plan,
-        'gumroad',
+        'gumroad_ping',
         $amount,
-        [
-            'sale_id' => $sale_id,
-            'product' => $product_identifier,
-            'billing_cycle' => $cycle,
-            'license_key' => $license_key
-        ]
+        ['sale_id' => $sale_id, 'product' => $product_identifier, 'billing_cycle' => $cycle, 'license_key' => $license_key]
     );
 
+    // New user: kirim email set password + welcome
     if ($isNewUser) {
-        // Generate a one-time set-password token so new user can access their account
-        $resetToken = bin2hex(random_bytes(32));
+        $resetToken  = bin2hex(random_bytes(32));
         $tokenExpiry = date('Y-m-d H:i:s', strtotime('+72 hours'));
 
         try {
@@ -368,7 +334,7 @@ try {
                 ON DUPLICATE KEY UPDATE token = VALUES(token), expires_at = VALUES(expires_at), created_at = NOW()
             ")->execute([$email, $resetToken, $tokenExpiry]);
         } catch (Exception $tokenEx) {
-            error_log("Gumroad webhook: Failed to create reset token for new user - " . $tokenEx->getMessage());
+            error_log("Gumroad Ping: Failed to create reset token - " . $tokenEx->getMessage());
         }
 
         $setPasswordUrl = APP_URL . '/auth/reset_password.php?token=' . $resetToken . '&email=' . urlencode($email);
@@ -381,24 +347,25 @@ try {
         ], $userId, 1);
     }
 
+    // Kirim system license key ke customer
     $emailSystem->sendFromTemplate('license_delivery', $email, $userName, [
-        'user_name' => $userName,
+        'user_name'    => $userName,
         'product_name' => $product_name,
-        'license_key' => $customLicenseKey,
-        'plan_name' => ucfirst($plan) . ' Plan',
-        'login_url' => APP_URL . '/auth/login.php',
-        'billing_url' => APP_URL . '/dashboard/billing.php',
-        'is_new_user' => $isNewUser
+        'license_key'  => $customLicenseKey,
+        'plan_name'    => ucfirst($plan) . ' Plan',
+        'login_url'    => APP_URL . '/auth/login.php',
+        'billing_url'  => APP_URL . '/dashboard/billing.php',
+        'is_new_user'  => $isNewUser
     ], $userId, 3);
 
     $emailSystem->sendFromTemplate('invoice', $email, $userName, [
-        'user_name' => $userName,
-        'order_id' => $sale_id,
-        'plan_name' => ucfirst($plan) . ' Plan',
-        'amount' => '$' . number_format($amount, 2),
-        'date' => date('F d, Y'),
+        'user_name'     => $userName,
+        'order_id'      => $sale_id,
+        'plan_name'     => ucfirst($plan) . ' Plan',
+        'amount'        => '$' . number_format($amount, 2),
+        'date'          => date('F d, Y'),
         'billing_cycle' => ucfirst($cycle),
-        'invoice_url' => APP_URL . '/dashboard/billing.php'
+        'invoice_url'   => APP_URL . '/dashboard/billing.php'
     ], $userId, 3, ['sale_id' => $sale_id, 'amount' => $amount, 'gateway' => 'gumroad']);
 
     $monitor->end(200);
@@ -407,23 +374,20 @@ try {
 
 } catch (Exception $e) {
     $retryQueue = new WebhookRetryQueue($pdo);
-
-    $retryQueue->queue('gumroad', $rawBody, [
-        'X-Gumroad-Signature' => $signature
-    ]);
+    $retryQueue->queue('gumroad', $rawBody ?? '', []);
 
     if (isset($userId)) {
         $monitor->logPaymentFailure($userId, 'gumroad', [
-            'sale_id' => $sale_id,
+            'sale_id'       => $sale_id,
             'error_message' => $e->getMessage(),
-            'product' => $product_identifier
+            'product'       => $product_identifier
         ]);
     }
 
     $monitor->handleError($e, 'high', $userId ?? null);
     $monitor->end(500, $e->getMessage());
 
-    error_log("Gumroad webhook error (queued for retry): " . $e->getMessage());
+    error_log("Gumroad Ping error (queued for retry): " . $e->getMessage());
     http_response_code(500);
     exit('Internal error');
 }

@@ -97,6 +97,7 @@ define('DEFAULT_LANG', 'en');
 // PAYMENT GATEWAYS
 // ============================================
 define('GUMROAD_WEBHOOK_SECRET', $_ENV['GUMROAD_WEBHOOK_SECRET'] ?? '');
+define('GUMROAD_PING_TOKEN',    $_ENV['GUMROAD_PING_TOKEN'] ?? '');
 
 // ============================================
 // ADMIN CREDENTIALS
