@@ -7,18 +7,15 @@ require_once dirname(__DIR__).'/includes/AuditLogger.php';
 header('Content-Type: application/json');
 startSession();
 
-// Allow analytics tracking without authentication for client-side tracking
 $input = json_decode(file_get_contents('php://input'), true);
 $isAnalyticsTracking = !empty($input['feature']);
 
-if(!$isAnalyticsTracking && !isLoggedIn()){
+if(!isLoggedIn()){
   echo json_encode(['ok'=>false,'msg'=>'Not authenticated']);
   exit;
 }
 
-if(!$isAnalyticsTracking){
-  CSRFMiddleware::require();
-}
+CSRFMiddleware::require();
 
 $user=currentUser();
 $action=$_POST['action']??$_GET['action']??'';
@@ -49,7 +46,7 @@ if($action==='reserve'){
     $pdo->commit();
 
     // Issue a signed reservation token (HMAC-SHA256 with server secret + session id)
-    $secret=defined('APP_SALT')?APP_SALT:(DB_PASS.DB_NAME);
+    $secret=APP_SALT;
     $payload=json_encode(['uid'=>$user['id'],'rows'=>$rows,'jt'=>$jobType,'ts'=>time()]);
     $sig=hash_hmac('sha256',$payload,$secret);
     $token=base64_encode($payload).'.'.$sig;
@@ -73,7 +70,7 @@ if($action==='log'){
   if($rows<=0){echo json_encode(['ok'=>false,'msg'=>'Invalid rows count']);exit;}
 
   // Verify the reservation token issued by 'reserve' action
-  $secret=defined('APP_SALT')?APP_SALT:(DB_PASS.DB_NAME);
+  $secret=APP_SALT;
   $tokenValid=false;
   $reservedRows=0;
   if(!empty($token)&&!empty($_SESSION['quota_token'])&&hash_equals($_SESSION['quota_token'],$token)){
@@ -124,15 +121,13 @@ if($isAnalyticsTracking){
     $operation = $input['operation'] ?? '';
     $data = $input['data'] ?? [];
 
-    if($user){
-      $auditLogger->setUserId($user['id']);
-    }
+    $auditLogger->setUserId($user['id']);
 
     // Track analytics event
     $analytics->trackEvent(
       $operation,
       $feature,
-      $user['id'] ?? null,
+      $user['id'],
       $data
     );
 

@@ -88,6 +88,7 @@ define('DB_PASS', $_ENV['DB_PASS'] ?? '');
 // ============================================
 define('APP_NAME', 'BulkReplace');
 define('APP_URL',  'https://bulkreplacetool.com');
+define('APP_SALT', $_ENV['APP_SALT'] ?? bin2hex(random_bytes(32)));
 define('SUPPORT_TELEGRAM', '@scytheinhere');
 define('SUPPORT_TELEGRAM_URL', 'https://t.me/scytheinhere');
 define('SESSION_NAME', 'br_saas');
