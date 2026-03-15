@@ -244,16 +244,31 @@ $qclass=$qpct>=90?'danger':($qpct>=70?'warn':'');
         <label style="font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);display:block;margin-bottom:10px;">License Key</label>
         <input type="text" id="modal-license-key" placeholder="XXXX-XXXX-XXXX-XXXX" style="width:100%;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:12px 16px;color:#fff;font-family:'JetBrains Mono',monospace;font-size:14px;letter-spacing:1px;margin-bottom:12px;" onkeypress="if(event.key==='Enter')activateLicenseFromModal()">
 
-        <label style="font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);display:block;margin-bottom:10px;">Product Type</label>
+        <div id="modal-product-type-wrap">
+        <label style="font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);display:block;margin-bottom:10px;">Product Type <span id="modal-auto-detect-badge" style="display:none;background:rgba(0,212,170,.15);color:var(--a2);padding:2px 8px;border-radius:4px;font-size:9px;margin-left:6px;">AUTO DETECTED</span></label>
         <select id="modal-product-type" style="width:100%;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:12px 16px;color:#fff;font-family:'JetBrains Mono',monospace;font-size:13px;">
           <option value="">-- Select Product --</option>
-          <option value="lifetime">Lifetime Plan</option>
-          <option value="csv-generator-pro">CSV Generator</option>
-          <option value="zip-manager">ZIP Manager</option>
-          <option value="copy-rename">Copy & Rename</option>
-          <option value="autopilot">Autopilot (Lifetime only)</option>
-          <option value="premium-bundle">Premium Bundle (All 3 Add-ons)</option>
+          <optgroup label="Subscription Plans">
+            <option value="pro-monthly">Pro Monthly</option>
+            <option value="pro-yearly">Pro Yearly</option>
+            <option value="platinum-monthly">Platinum Monthly</option>
+            <option value="platinum-yearly">Platinum Yearly</option>
+          </optgroup>
+          <optgroup label="Lifetime & Bundles">
+            <option value="lifetime">Lifetime Plan</option>
+            <option value="premium-bundle">Premium Bundle (All Add-ons)</option>
+            <option value="autopilot">Autopilot Bundle</option>
+          </optgroup>
+          <optgroup label="Add-ons">
+            <option value="csv-generator-pro">CSV Generator</option>
+            <option value="zip-manager">ZIP Manager</option>
+            <option value="copy-rename">Copy & Rename</option>
+          </optgroup>
         </select>
+        </div>
+        <div id="modal-gumroad-hint" style="display:none;margin-top:8px;padding:8px 12px;background:rgba(0,212,170,.06);border:1px solid rgba(0,212,170,.2);border-radius:8px;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--a2);">
+          Gumroad key detected — product will be auto-detected. No need to select.
+        </div>
 
         <div id="modal-activation-msg" style="margin-top:12px;"></div>
       </div>
@@ -269,9 +284,10 @@ $qclass=$qpct>=90?'danger':($qpct>=70?'warn':'');
       <!-- Info Box -->
       <div style="background:rgba(0,212,170,.06);border:1px dashed rgba(0,212,170,.25);border-radius:10px;padding:14px;">
         <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted);line-height:1.8;">
-          <strong style="color:var(--a2);">💡 Don't have a license key?</strong><br>
-          • Monthly/Yearly plans activate automatically via email<br>
-          • One-time add-ons & Lifetime require license key activation<br>
+          <strong style="color:var(--a2);">💡 How to activate</strong><br>
+          • Paste your Gumroad license key (format: <code style="color:var(--a1);">XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX</code>)<br>
+          • Works for: Pro, Platinum, Lifetime, and all add-ons<br>
+          • Product is auto-detected from Gumroad key — no manual selection needed<br>
           • <a href="/landing/pricing.php" style="color:var(--a1);">View all plans & pricing →</a>
         </div>
       </div>
@@ -329,18 +345,44 @@ function closeLicenseModal() {
   localStorage.setItem('license_modal_dismissed', Date.now());
 }
 
+function isGumroadKeyFormat(key) {
+  return /^[A-F0-9]{8}-[A-F0-9]{8}-[A-F0-9]{8}-[A-F0-9]{8}$/i.test(key);
+}
+
+document.getElementById('modal-license-key').addEventListener('input', function() {
+  const key = this.value.trim();
+  const isGumroad = isGumroadKeyFormat(key);
+  const productWrap = document.getElementById('modal-product-type-wrap');
+  const gumroadHint = document.getElementById('modal-gumroad-hint');
+  const autoBadge = document.getElementById('modal-auto-detect-badge');
+
+  if (isGumroad) {
+    productWrap.style.opacity = '0.4';
+    productWrap.style.pointerEvents = 'none';
+    gumroadHint.style.display = 'block';
+    autoBadge.style.display = 'inline';
+    document.getElementById('modal-product-type').value = '';
+  } else {
+    productWrap.style.opacity = '1';
+    productWrap.style.pointerEvents = '';
+    gumroadHint.style.display = 'none';
+    autoBadge.style.display = 'none';
+  }
+});
+
 async function activateLicenseFromModal() {
   const key = document.getElementById('modal-license-key').value.trim();
   const product = document.getElementById('modal-product-type').value;
   const btn = document.querySelector('#license-modal .btn-amber');
   const btnText = document.getElementById('modal-activate-text');
   const msgDiv = document.getElementById('modal-activation-msg');
+  const isGumroad = isGumroadKeyFormat(key);
 
   if (!key) {
     msgDiv.innerHTML = '<div class="err-box" style="font-size:11px;">Please enter your license key</div>';
     return;
   }
-  if (!product) {
+  if (!isGumroad && !product) {
     msgDiv.innerHTML = '<div class="err-box" style="font-size:11px;">Please select a product type</div>';
     return;
   }
@@ -353,7 +395,7 @@ async function activateLicenseFromModal() {
     const res = await fetch('/api/activate_license.php', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ license_key: key, product_slug: product })
+      body: JSON.stringify({ license_key: key, ...(product ? { product_slug: product } : {}) })
     });
     const result = await res.json();
 
