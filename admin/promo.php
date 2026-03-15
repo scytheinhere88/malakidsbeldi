@@ -18,13 +18,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $maxUses = !empty($_POST['max_uses']) ? intval($_POST['max_uses']) : null;
 
             if ($code && $discount > 0 && $discount <= 100) {
-                try {
-                    $stmt = $db->prepare("INSERT INTO promo_codes (code, discount_percent, valid_from, valid_until, max_uses) VALUES (?, ?, ?, ?, ?)");
-                    $stmt->execute([$code, $discount, $validFrom, $validUntil, $maxUses]);
-                    $success = "Promo code created successfully!";
-                } catch (Exception $e) {
-                    error_log("Promo code create error: " . $e->getMessage());
-                    $error = "Failed to create promo code. A code with that name may already exist.";
+                if (strtotime($validUntil) <= strtotime($validFrom)) {
+                    $error = "Valid Until must be after Valid From.";
+                } else {
+                    try {
+                        $stmt = $db->prepare("INSERT INTO promo_codes (code, discount_percent, valid_from, valid_until, max_uses) VALUES (?, ?, ?, ?, ?)");
+                        $stmt->execute([$code, $discount, $validFrom, $validUntil, $maxUses]);
+                        $success = "Promo code created successfully!";
+                    } catch (Exception $e) {
+                        error_log("Promo code create error: " . $e->getMessage());
+                        $error = "Failed to create promo code. A code with that name may already exist.";
+                    }
                 }
             } else {
                 $error = "Invalid promo code data.";

@@ -75,7 +75,8 @@ if($_SERVER['REQUEST_METHOD']==='POST'&&isset($_POST['uid'])){
       ]);
 
       if(!empty($_POST['note'])){
-        db()->prepare("INSERT INTO admin_notes(user_id,note,created_by)VALUES(?,?,'admin')")->execute([$uid,$_POST['note']]);
+        $note = mb_substr(trim($_POST['note']), 0, 500);
+        db()->prepare("INSERT INTO admin_notes(user_id,note,created_by)VALUES(?,?,'admin')")->execute([$uid,$note]);
       }
       $msg='User updated successfully.';
     }
@@ -227,7 +228,7 @@ $users->execute($params);$ulist=$users->fetchAll();
       <div class="form-field"><label class="form-label">Status</label>
         <select name="status"><option value="active" <?= $edit['status']==='active'?'selected':'' ?>>Active</option><option value="suspended" <?= $edit['status']==='suspended'?'selected':'' ?>>Suspended</option></select>
       </div>
-      <div class="form-field"><label class="form-label">Admin Note (optional)</label><input type="text" name="note" placeholder="Internal note..."></div>
+      <div class="form-field"><label class="form-label">Admin Note (optional, max 500 chars)</label><input type="text" name="note" placeholder="Internal note..." maxlength="500"></div>
       <div style="grid-column:1/-1;display:flex;gap:10px;">
         <button type="submit" class="btn btn-amber">Save Changes</button>
         <a href="/admin/users.php" class="btn btn-ghost">Cancel</a>
