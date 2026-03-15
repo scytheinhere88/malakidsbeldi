@@ -3,7 +3,7 @@
  * CRON Monitoring Health Checks
  *
  * Run this script every 5 minutes via cron:
- * */5 * * * * php /path/to/api/cron_monitoring.php
+ * @cron: *\/5 * * * * php /path/to/api/cron_monitoring.php
  *
  * This script:
  * - Checks all system thresholds
@@ -15,6 +15,8 @@
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../includes/SystemMonitor.php';
 require_once __DIR__ . '/../includes/AlertManager.php';
+require_once __DIR__ . '/../includes/AdvancedAlertManager.php';
+require_once __DIR__ . '/../includes/CronHeartbeat.php';
 
 // Prevent web access
 if (php_sapi_name() !== 'cli') {
@@ -25,9 +27,13 @@ if (php_sapi_name() !== 'cli') {
 echo "[" . date('Y-m-d H:i:s') . "] Starting monitoring health checks...\n";
 
 try {
-    $db = db();
-    $monitor = SystemMonitor::getInstance($db);
-    $alertManager = AlertManager::getInstance($db, $monitor);
+    $db              = db();
+    $monitor         = SystemMonitor::getInstance($db);
+    $alertManager    = AlertManager::getInstance($db, $monitor);
+    $advAlertManager = AdvancedAlertManager::getInstance($db);
+    $heartbeat       = CronHeartbeat::getInstance($db);
+
+    $executionId = $heartbeat->startJob('cron_monitoring', 5);
 
     // ============================================
     // 1. RUN HEALTH CHECKS
@@ -99,17 +105,56 @@ try {
     // ============================================
     $activeAlerts = $alertManager->getActiveAlerts('critical');
     if (count($activeAlerts) > 0) {
-        echo "\n🚨 CRITICAL ALERTS ACTIVE:\n";
+        echo "\nCRITICAL ALERTS ACTIVE:\n";
         foreach ($activeAlerts as $alert) {
             echo "  - {$alert['alert_type']}: {$alert['message']}\n";
         }
     }
 
+    // ============================================
+    // 6. CHECK MISSED CRON JOBS
+    // ============================================
+    echo "\nChecking missed cron jobs...\n";
+    $missedJobs = $heartbeat->checkMissedJobs();
+    if (count($missedJobs) > 0) {
+        echo "  MISSED JOBS (" . count($missedJobs) . "):\n";
+        foreach ($missedJobs as $job) {
+            echo "    - {$job['job_name']}: {$job['minutes_late']} minutes late\n";
+
+            $advAlertManager->createAlert(
+                'missed_cron_' . $job['job_name'],
+                'cron',
+                $job['minutes_late'] > 60 ? AdvancedAlertManager::SEVERITY_CRITICAL : AdvancedAlertManager::SEVERITY_HIGH,
+                "Missed Cron: {$job['job_name']}",
+                "Cron job '{$job['job_name']}' is {$job['minutes_late']} minutes late. Expected at {$job['next_expected_run']}.",
+                (float)$job['minutes_late'],
+                60.0,
+                ['job_name' => $job['job_name'], 'last_run' => $job['last_run']]
+            );
+        }
+    } else {
+        echo "  All cron jobs running on schedule\n";
+    }
+
+    // ============================================
+    // 7. ESCALATE UNACKNOWLEDGED ALERTS
+    // ============================================
+    $escalated = $advAlertManager->checkEscalations();
+    if ($escalated > 0) {
+        echo "\n  Escalated {$escalated} alert(s)\n";
+    }
+
+    $heartbeat->endJob($executionId, 'success', count($alerts) + count($missedJobs));
+
     echo "\n[" . date('Y-m-d H:i:s') . "] Monitoring health checks completed successfully!\n";
     exit(0);
 
 } catch (Exception $e) {
-    echo "\n❌ ERROR: " . $e->getMessage() . "\n";
+    if (isset($executionId) && isset($heartbeat)) {
+        $heartbeat->endJob($executionId, 'failed', null, $e->getMessage());
+    }
+
+    echo "\nERROR: " . $e->getMessage() . "\n";
     echo $e->getTraceAsString() . "\n";
     exit(1);
 }
