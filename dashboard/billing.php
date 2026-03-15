@@ -9,6 +9,29 @@ try {
         header('Location: /auth/login.php?error=session_expired');
         exit;
     }
+
+    // Auto-downgrade expired plans
+    if (
+        $user['plan'] !== 'free' &&
+        $user['billing_cycle'] !== 'lifetime' &&
+        !empty($user['plan_expires_at']) &&
+        strtotime($user['plan_expires_at']) < time()
+    ) {
+        try {
+            $db = db();
+            $db->prepare("UPDATE users SET plan='free', billing_cycle='none', plan_expires_at=NULL WHERE id=?")
+               ->execute([$user['id']]);
+            $db->prepare("UPDATE licenses SET status='expired' WHERE user_id=? AND (expires_at IS NOT NULL AND expires_at < NOW()) AND status='active'")
+               ->execute([$user['id']]);
+            $user['plan'] = 'free';
+            $user['billing_cycle'] = 'none';
+            $user['plan_expires_at'] = null;
+            error_log("Billing page: Auto-downgraded expired user {$user['id']} to free");
+        } catch (Exception $expEx) {
+            error_log("Billing page: Failed to auto-downgrade expired plan - " . $expEx->getMessage());
+        }
+    }
+
     $plan=getPlan($user['plan']);
     $quota=getUserQuota($user['id']);
 

@@ -266,10 +266,12 @@ class LicenseGenerator
             SELECT l.*, pm.product_name, pm.product_type, pm.billing_cycle, pm.plan_level, pm.features
             FROM licenses l
             LEFT JOIN product_mappings pm ON l.product_id = pm.product_id
-            WHERE l.license_key = ?
+            WHERE l.license_key = ? OR l.gumroad_license = ?
+            ORDER BY l.status = 'active' DESC, l.created_at DESC
+            LIMIT 1
         ");
 
-        $stmt->execute([$licenseKey]);
+        $stmt->execute([$licenseKey, $licenseKey]);
         $license = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if (!$license) {
@@ -308,6 +310,18 @@ class LicenseGenerator
         }
 
         $license = $verification['license'];
+
+        if ($license['status'] === 'revoked') {
+            return ['success' => false, 'error' => 'This license has been revoked and cannot be activated'];
+        }
+
+        if ($license['status'] === 'expired') {
+            return ['success' => false, 'error' => 'This license has expired and cannot be activated'];
+        }
+
+        if ($license['status'] === 'cancelled') {
+            return ['success' => false, 'error' => 'This license has been cancelled'];
+        }
 
         if ($license['status'] === 'active' && $license['user_id'] && $license['user_id'] != $userId) {
             return ['success' => false, 'error' => 'License already activated by another user'];

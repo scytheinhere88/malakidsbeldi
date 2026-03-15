@@ -70,8 +70,13 @@ $endedReason     = $data['ended_reason'] ?? null;
 // ============================================
 // SUBSCRIPTION CANCELLATION HANDLER
 // Triggered by resource_subscriptions: "cancellation"
+// Handles both: cancelled flag (boolean) AND cancelled_at timestamp
 // ============================================
-if (!empty($data['cancelled']) && filter_var($data['cancelled'], FILTER_VALIDATE_BOOLEAN)) {
+$isCancellation = (!empty($data['cancelled']) && filter_var($data['cancelled'], FILTER_VALIDATE_BOOLEAN))
+    || (!empty($cancelledAt))
+    || $resourceName === 'cancellation';
+
+if ($isCancellation) {
     $pdo         = db();
     $auditLogger = new AuditLogger($pdo);
     $emailSystem = new EmailSystem($pdo);
@@ -92,15 +97,22 @@ if (!empty($data['cancelled']) && filter_var($data['cancelled'], FILTER_VALIDATE
                     ->execute([$cancelEffectiveAt, $cancelledUser['id']]);
                 error_log("Gumroad cancellation: User {$cancelEmail} subscription will end at {$cancelEffectiveAt}");
             } else {
-                // Immediate — downgrade now
+                // Immediate — downgrade now + revoke addons
                 $pdo->beginTransaction();
                 try {
                     if ($license_key) {
                         $pdo->prepare("UPDATE licenses SET status='revoked', revoked_at=NOW() WHERE gumroad_license=? OR license_key=?")
                             ->execute([$license_key, $license_key]);
                     }
-                    $pdo->prepare("UPDATE users SET plan='free', billing_cycle='none', plan_expires_at=NULL WHERE id=?")
+                    $pdo->prepare("UPDATE users SET plan='free', billing_cycle='none', plan_expires_at=NULL, gumroad_license=NULL, subscription_cancelled_at=NOW() WHERE id=?")
                         ->execute([$cancelledUser['id']]);
+
+                    // Revoke addons tied to this sale_id
+                    if ($sale_id) {
+                        $pdo->prepare("DELETE FROM user_addons WHERE user_id=? AND gumroad_sale_id=?")
+                            ->execute([$cancelledUser['id'], $sale_id]);
+                    }
+
                     $pdo->commit();
                 } catch (Exception $txEx) {
                     $pdo->rollBack();
@@ -109,7 +121,19 @@ if (!empty($data['cancelled']) && filter_var($data['cancelled'], FILTER_VALIDATE
 
                 $auditLogger->setUserId($cancelledUser['id']);
                 $auditLogger->logPlanChange($oldPlan, 'free', 'gumroad_cancellation');
-                error_log("Gumroad cancellation: Downgraded {$cancelEmail} from {$oldPlan} to free");
+
+                try {
+                    $emailSystem->sendFromTemplate('plan_expired', $cancelEmail, $cancelledUser['name'], [
+                        'user_name'   => $cancelledUser['name'],
+                        'plan_name'   => ucfirst($oldPlan) . ' Plan',
+                        'expiry_date' => date('F d, Y'),
+                        'reason'      => 'cancellation'
+                    ], $cancelledUser['id'], 2);
+                } catch (Exception $emailEx) {
+                    error_log("Gumroad cancellation: failed to send email - " . $emailEx->getMessage());
+                }
+
+                error_log("Gumroad cancellation: Downgraded {$cancelEmail} from {$oldPlan} to free, addons revoked");
             }
         } else {
             error_log("Gumroad cancellation: User not found for email {$cancelEmail}");
@@ -181,6 +205,57 @@ if (!empty($endedAt) || $resourceName === 'subscription_ended') {
 }
 
 // ============================================
+// SUBSCRIPTION RENEWAL HANDLER
+// Triggered by resource_subscriptions: "subscription_updated"
+// Extends plan_expires_at on successful renewal
+// ============================================
+if ($resourceName === 'subscription_updated' && empty($cancelledAt) && empty($endedAt)) {
+    $pdo         = db();
+    $auditLogger = new AuditLogger($pdo);
+    $emailSystem = new EmailSystem($pdo);
+
+    try {
+        $renewEmail = $email ?: strtolower(trim($data['user_email'] ?? ''));
+        $userStmt = $pdo->prepare("SELECT id, name, plan, billing_cycle, plan_expires_at FROM users WHERE email = ? LIMIT 1");
+        $userStmt->execute([$renewEmail]);
+        $renewedUser = $userStmt->fetch();
+
+        if ($renewedUser && $renewedUser['plan'] !== 'free' && $renewedUser['billing_cycle'] !== 'lifetime') {
+            $currentExpiry = $renewedUser['plan_expires_at'] ? strtotime($renewedUser['plan_expires_at']) : time();
+            $baseTime = max($currentExpiry, time());
+
+            $cycle = $renewedUser['billing_cycle'];
+            $extensionMonths = ($cycle === 'annual' || $cycle === 'yearly') ? 12 : 1;
+            $newExpiry = date('Y-m-d H:i:s', strtotime("+{$extensionMonths} months", $baseTime));
+
+            $pdo->prepare("UPDATE users SET plan_expires_at=?, subscription_cancelled_at=NULL WHERE id=?")
+                ->execute([$newExpiry, $renewedUser['id']]);
+
+            if ($license_key) {
+                $pdo->prepare("UPDATE licenses SET status='active', expires_at=? WHERE gumroad_license=? OR license_key=?")
+                    ->execute([$newExpiry, $license_key, $license_key]);
+            }
+
+            $auditLogger->setUserId($renewedUser['id']);
+            $auditLogger->log('subscription_renewed', 'payment', 'success', [
+                'target_type'  => 'user',
+                'target_id'    => $renewedUser['id'],
+                'request_data' => ['sale_id' => $sale_id, 'new_expiry' => $newExpiry, 'plan' => $renewedUser['plan']]
+            ]);
+
+            error_log("Gumroad renewal: Extended {$renewEmail} plan to {$newExpiry}");
+        } else {
+            error_log("Gumroad renewal: User not found or no action needed for {$renewEmail}");
+        }
+    } catch (Exception $e) {
+        error_log("Gumroad renewal handler error: " . $e->getMessage());
+    }
+
+    http_response_code(200);
+    exit('ok');
+}
+
+// ============================================
 // REFUND / CHARGEBACK HANDLER
 // ============================================
 if ($refunded || $chargebacked) {
@@ -203,8 +278,21 @@ if ($refunded || $chargebacked) {
                     $pdo->prepare("UPDATE licenses SET status = 'revoked', revoked_at = NOW() WHERE gumroad_license = ? OR license_key = ?")
                         ->execute([$license_key, $license_key]);
                 }
-                $pdo->prepare("UPDATE users SET plan = 'free', billing_cycle = 'none', plan_expires_at = NULL WHERE id = ?")
+                $pdo->prepare("UPDATE users SET plan = 'free', billing_cycle = 'none', plan_expires_at = NULL, gumroad_license = NULL, gumroad_sale_id = NULL WHERE id = ?")
                     ->execute([$refundedUser['id']]);
+
+                // Revoke addons tied to this sale_id
+                if ($sale_id) {
+                    $pdo->prepare("DELETE FROM user_addons WHERE user_id = ? AND gumroad_sale_id = ?")
+                        ->execute([$refundedUser['id'], $sale_id]);
+                }
+
+                // If no sale_id, revoke all addons for user (full plan refund)
+                if (!$sale_id && $oldPlan !== 'free') {
+                    $pdo->prepare("DELETE FROM user_addons WHERE user_id = ?")
+                        ->execute([$refundedUser['id']]);
+                }
+
                 $pdo->commit();
             } catch (Exception $txEx) {
                 $pdo->rollBack();
@@ -231,7 +319,7 @@ if ($refunded || $chargebacked) {
                 error_log("Gumroad refund: failed to send revocation email - " . $emailEx->getMessage());
             }
 
-            error_log("Gumroad {$reason}: downgraded user {$email} from {$oldPlan} to free");
+            error_log("Gumroad {$reason}: downgraded user {$email} from {$oldPlan} to free, addons revoked");
         } else {
             error_log("Gumroad {$reason}: user not found for email {$email}");
         }
