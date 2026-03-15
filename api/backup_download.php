@@ -2,10 +2,20 @@
 session_start();
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../includes/BackupSystem.php';
+require_once __DIR__ . '/../includes/RateLimiter.php';
 
 if (!isset($_SESSION['user_id'])) {
     http_response_code(401);
     echo json_encode(['success' => false, 'error' => 'Unauthorized']);
+    exit;
+}
+
+$_rl = new RateLimiter(db());
+$_rlId = 'backup_dl_' . ($_SESSION['user_id'] ?? $_SERVER['REMOTE_ADDR']);
+$_rlCheck = $_rl->check($_rlId, 'backup_download', 20, 3600);
+if (!$_rlCheck['allowed']) {
+    http_response_code(429);
+    echo json_encode(['success' => false, 'error' => 'Too many requests. Please try again later.']);
     exit;
 }
 
@@ -82,6 +92,7 @@ try {
     }
 
 } catch (Exception $e) {
+    error_log("Backup download error: " . $e->getMessage());
     http_response_code(500);
-    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    echo json_encode(['success' => false, 'error' => 'Request failed. Please try again.']);
 }

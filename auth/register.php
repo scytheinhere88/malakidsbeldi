@@ -70,7 +70,7 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
     try{
       $chk=db()->prepare("SELECT id FROM users WHERE email=?");$chk->execute([$email]);
       if($chk->fetch()){
-        $err='Email already registered.';
+        $err='Registration failed. Please check your information and try again.';
         $auditLogger->log('registration_failed', 'auth', 'failed', [
           'target_type' => 'user',
           'target_id' => $email,

@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/../includes/RateLimiter.php';
 startSession();
 
 header('Content-Type: application/json');
@@ -18,6 +19,14 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 
 $pdo = db();
 $uid = $_SESSION['uid'];
+
+$_rl = new RateLimiter($pdo);
+$_rlCheck = $_rl->check('api_key_gen_' . $uid, 'api_key_generate', 3, 3600);
+if (!$_rlCheck['allowed']) {
+    http_response_code(429);
+    echo json_encode(['ok' => false, 'error' => 'Too many requests. You can only generate 3 API keys per hour.']);
+    exit;
+}
 
 try {
     // Check if user has Lifetime plan
@@ -50,9 +59,10 @@ try {
     ]);
 
 } catch (Exception $e) {
+    error_log("API key generation error: " . $e->getMessage());
     http_response_code(500);
     echo json_encode([
         'ok' => false,
-        'error' => 'Failed to generate API key: ' . $e->getMessage()
+        'error' => 'Failed to generate API key. Please try again.'
     ]);
 }

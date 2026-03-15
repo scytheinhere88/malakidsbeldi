@@ -47,6 +47,22 @@ try {
 
 header('Content-Type: application/json');
 require_csrf();
+
+require_once dirname(__DIR__).'/includes/EnhancedRateLimiter.php';
+require_once dirname(__DIR__).'/includes/SystemMonitor.php';
+$_rlPdo   = db();
+$_rlMon   = new SystemMonitor($_rlPdo);
+$_rl      = new EnhancedRateLimiter($_rlPdo, $_rlMon);
+$_rlUser  = currentUser();
+$_rlTier  = $_rlUser['plan'] ?? 'free';
+$_rlIp    = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+$_rlCheck = $_rl->check($_rlIp, 'api_scraper', $_rlTier, $_rlUser['id'] ?? null);
+if (!$_rlCheck['allowed']) {
+    http_response_code(429);
+    echo json_encode(['ok' => false, 'msg' => 'Rate limit exceeded. Please wait before retrying.']);
+    exit;
+}
+
 $body        = json_decode(file_get_contents('php://input'), true) ?? [];
 $domains     = $body['domains'] ?? [];
 $keywordHint = trim($body['keyword_hint'] ?? '');
@@ -111,10 +127,10 @@ try {
     ]);
 
 } catch (Exception $e) {
+    error_log("Autopilot queue creation error: " . $e->getMessage());
     http_response_code(500);
     echo json_encode([
         'ok' => false,
-        'msg' => 'Failed to create queue job: ' . $e->getMessage()
+        'msg' => 'Failed to create queue job. Please try again.'
     ]);
-    error_log("Autopilot queue creation error: " . $e->getMessage());
 }

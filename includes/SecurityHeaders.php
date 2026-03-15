@@ -61,15 +61,21 @@ class SecurityHeaders {
             "default-src 'self'",
             "script-src 'self' 'nonce-{$nonce}' 'unsafe-inline' https://cdnjs.cloudflare.com",
             "style-src 'self' 'nonce-{$nonce}' 'unsafe-inline' https://fonts.googleapis.com",
-            "img-src 'self' data: https:",
+            "img-src 'self' data: https: blob:",
             "font-src 'self' data: https://fonts.gstatic.com",
             "connect-src 'self' https:",
+            "worker-src 'self' blob:",
+            "frame-src 'self' https://www.google.com https://maps.google.com",
             "frame-ancestors 'self'",
             "base-uri 'self'",
             "form-action 'self'",
             "object-src 'none'",
-            "upgrade-insecure-requests",
+            "media-src 'none'",
         ];
+
+        if (self::isHttps()) {
+            $csp[] = "upgrade-insecure-requests";
+        }
 
         header("Content-Security-Policy: " . implode("; ", $csp));
         header("X-Permitted-Cross-Domain-Policies: none");

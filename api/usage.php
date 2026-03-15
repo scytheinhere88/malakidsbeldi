@@ -3,6 +3,7 @@ require_once dirname(__DIR__).'/config.php';
 require_once dirname(__DIR__).'/includes/CSRFMiddleware.php';
 require_once dirname(__DIR__).'/includes/Analytics.php';
 require_once dirname(__DIR__).'/includes/AuditLogger.php';
+require_once dirname(__DIR__).'/includes/RateLimiter.php';
 
 header('Content-Type: application/json');
 startSession();
@@ -18,6 +19,14 @@ if(!isLoggedIn()){
 CSRFMiddleware::require();
 
 $user=currentUser();
+
+$_rl = new RateLimiter(db());
+$_rlCheck = $_rl->check('usage_' . $user['id'], 'usage_api', 120, 60);
+if (!$_rlCheck['allowed']) {
+    http_response_code(429);
+    echo json_encode(['ok' => false, 'msg' => 'Too many requests. Please slow down.']);
+    exit;
+}
 $action=$_POST['action']??$_GET['action']??'';
 
 if($action==='check'){

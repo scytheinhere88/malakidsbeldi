@@ -14,6 +14,16 @@ require_once dirname(__DIR__).'/includes/SystemMonitor.php';
 header('Content-Type: application/json');
 require_csrf();
 
+$_rlUser  = currentUser();
+$_rlTier  = $_rlUser['plan'] ?? 'free';
+$_rlIp    = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+$_rlCheck = (new EnhancedRateLimiter(db(), new SystemMonitor(db())))->check($_rlIp, 'api_scraper', $_rlTier, $_rlUser['id'] ?? null);
+if (!$_rlCheck['allowed']) {
+    http_response_code(429);
+    echo json_encode(['ok' => false, 'msg' => 'Rate limit exceeded. Please wait before retrying.']);
+    exit;
+}
+
 // Increase execution time and memory for large batches
 set_time_limit(300); // 5 minutes max per chunk
 ini_set('memory_limit', '512M');
@@ -244,10 +254,10 @@ try {
     ]);
 
 } catch (Exception $e) {
+    error_log("Autopilot queue process error: " . $e->getMessage());
     http_response_code(500);
     echo json_encode([
         'ok' => false,
-        'msg' => 'Processing error: ' . $e->getMessage()
+        'msg' => 'Processing error. Please try again.'
     ]);
-    error_log("Autopilot queue process error: " . $e->getMessage());
 }

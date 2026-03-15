@@ -1,5 +1,6 @@
 <?php
 require_once dirname(__DIR__).'/config.php';
+require_once dirname(__DIR__).'/includes/RateLimiter.php';
 
 header('Content-Type: application/json');
 
@@ -10,6 +11,13 @@ $user = currentUser();
 if (!$user) {
     http_response_code(401);
     die(json_encode(['success' => false, 'error' => 'Not authenticated']));
+}
+
+$_rl = new RateLimiter(db());
+$_rlCheck = $_rl->check('verifysub_' . $user['id'], 'verify_subscription', 30, 60);
+if (!$_rlCheck['allowed']) {
+    http_response_code(429);
+    die(json_encode(['success' => false, 'error' => 'Too many requests. Please slow down.']));
 }
 
 try {
@@ -30,7 +38,7 @@ try {
     $userData = $stmt->fetch();
 
     if (!$userData) {
-        throw new Exception('User not found');
+        throw new Exception('Subscription data unavailable');
     }
 
     $response = [
