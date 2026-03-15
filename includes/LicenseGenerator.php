@@ -120,7 +120,9 @@ class LicenseGenerator
             ];
 
             foreach ($products as $product) {
-                $checkProduct = $this->conn->query("SELECT COUNT(*) FROM product_mappings WHERE product_id='{$product[0]}'")->fetchColumn();
+                $checkStmt = $this->conn->prepare("SELECT COUNT(*) FROM product_mappings WHERE product_id = ?");
+                $checkStmt->execute([$product[0]]);
+                $checkProduct = $checkStmt->fetchColumn();
                 if ($checkProduct == 0) {
                     $stmt = $this->conn->prepare("
                         INSERT INTO product_mappings (product_id, product_slug, product_name, product_type, billing_cycle, plan_level, features)

@@ -353,7 +353,7 @@ function ago(string $dt):string{$d=time()-strtotime($dt);if($d<60)return'just no
 
 function getLang():string{ss();return $_SESSION['lang']??$_COOKIE['lang']??DEFAULT_LANG;}
 function setLang(string $l){ss();$_SESSION['lang']=$l;setcookie('lang',$l,time()+31536000,'/');}
-function t(string $k):string{static $t=null;if(!$t){$l=getLang();$t=require __DIR__.'/lang/'.$l.'.php';}return $t[$k]??$k;}
+function t(string $k):string{static $t=null;if(!$t){$l=getLang();$l=preg_match('/^[a-z]{2}(_[a-z]{2,4})?$/i',$l)?$l:DEFAULT_LANG;$f=__DIR__.'/lang/'.$l.'.php';$t=file_exists($f)?require $f:require __DIR__.'/lang/'.DEFAULT_LANG.'.php';}return $t[$k]??$k;}
 
 // Addons that are ALWAYS sold separately, even for has_addons plans
 const ADDON_ALWAYS_SEPARATE = ['autopilot'];

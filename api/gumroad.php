@@ -69,21 +69,28 @@ if ($refunded || $chargebacked) {
     $reason = $chargebacked ? 'chargeback' : 'refund';
 
     try {
-        // Revoke license
-        if ($license_key) {
-            $pdo->prepare("UPDATE licenses SET status = 'revoked', revoked_at = NOW() WHERE gumroad_license = ? OR license_key = ?")
-                ->execute([$license_key, $license_key]);
-        }
-
-        // Find user and downgrade to free
         $userStmt = $pdo->prepare("SELECT id, name, plan FROM users WHERE email = ? LIMIT 1");
         $userStmt->execute([$email]);
         $refundedUser = $userStmt->fetch();
 
         if ($refundedUser) {
             $oldPlan = $refundedUser['plan'];
-            $pdo->prepare("UPDATE users SET plan = 'free', billing_cycle = 'none', plan_expires_at = NULL WHERE id = ?")
-                ->execute([$refundedUser['id']]);
+
+            $pdo->beginTransaction();
+            try {
+                if ($license_key) {
+                    $pdo->prepare("UPDATE licenses SET status = 'revoked', revoked_at = NOW() WHERE gumroad_license = ? OR license_key = ?")
+                        ->execute([$license_key, $license_key]);
+                }
+
+                $pdo->prepare("UPDATE users SET plan = 'free', billing_cycle = 'none', plan_expires_at = NULL WHERE id = ?")
+                    ->execute([$refundedUser['id']]);
+
+                $pdo->commit();
+            } catch (Exception $txEx) {
+                $pdo->rollBack();
+                throw $txEx;
+            }
 
             $auditLogger->setUserId($refundedUser['id']);
             $auditLogger->logPlanChange($oldPlan, 'free', 'gumroad_' . $reason);

@@ -85,6 +85,58 @@ try {
             $billingCycle = 'monthly';
             $expiresAt = null;
 
+            // Check if this is an addon purchase first
+            $matchedAddon = null;
+            foreach (ADDON_DATA as $aSlug => $aData) {
+                if ((string)($aData['lemon_variant'] ?? '') === (string)$variantId) {
+                    $matchedAddon = $aSlug;
+                    break;
+                }
+            }
+
+            if ($matchedAddon !== null) {
+                // Addon purchase flow
+                $slugsToGrant = !empty(ADDON_DATA[$matchedAddon]['includes'])
+                    ? ADDON_DATA[$matchedAddon]['includes']
+                    : [$matchedAddon];
+
+                $pdo->beginTransaction();
+                try {
+                    foreach ($slugsToGrant as $grantSlug) {
+                        $addonInfo = ADDON_DATA[$grantSlug] ?? null;
+                        if (!$addonInfo) continue;
+
+                        $pdo->prepare("INSERT IGNORE INTO addons (slug, name, price) VALUES (?,?,?)")
+                            ->execute([$grantSlug, $addonInfo['name'], $addonInfo['price']]);
+
+                        $addonRow = $pdo->prepare("SELECT id FROM addons WHERE slug = ?");
+                        $addonRow->execute([$grantSlug]);
+                        $addonId = $addonRow->fetchColumn();
+                        if (!$addonId) continue;
+
+                        $pdo->prepare("
+                            INSERT INTO user_addons (user_id, addon_id, order_id, is_active, purchased_at)
+                            VALUES (?, ?, ?, 1, NOW())
+                            ON DUPLICATE KEY UPDATE is_active = 1, order_id = ?
+                        ")->execute([$userId, $addonId, $orderId, $orderId]);
+
+                        $auditLogger->setUserId($userId);
+                        $auditLogger->log('addon_purchased', 'payment', 'success', [
+                            'target_type'  => 'addon',
+                            'target_id'    => $grantSlug,
+                            'request_data' => ['order_id' => $orderId, 'gateway' => 'lemonsqueezy', 'variant_id' => $variantId]
+                        ]);
+                    }
+                    $pdo->commit();
+                } catch (Exception $e) {
+                    $pdo->rollBack();
+                    error_log("LemonSqueezy addon webhook transaction failed: " . $e->getMessage());
+                    throw $e;
+                }
+                break;
+            }
+
+            // Plan purchase flow
             foreach (PLAN_DATA as $planKey => $planInfo) {
                 if ($planInfo['lemon_monthly'] == $variantId) {
                     $plan = $planKey;
@@ -279,85 +331,6 @@ try {
                 }
 
                 error_log("LemonSqueezy {$cancelReason}: downgraded user #{$licenseData['user_id']} from {$oldPlan} to free");
-            }
-
-            break;
-
-        // ── One-time addon purchase ───────────────────────────────────────
-        case 'order_created':
-            $orderStatus = $attributes['status'] ?? '';
-            if ($orderStatus !== 'paid') break;
-
-            $email     = $attributes['user_email'] ?? '';
-            $variantId = (string)($attributes['first_order_item']['variant_id'] ?? '');
-            $orderId   = (string)($attributes['identifier'] ?? $attributes['order_number'] ?? '');
-
-            if (!$email || !$variantId) break;
-
-            $userRow = $pdo->prepare("SELECT id FROM users WHERE email = ?");
-            $userRow->execute([$email]);
-            $userData = $userRow->fetch();
-            if (!$userData) break;
-
-            $userId = $userData['id'];
-
-            // Match variant to an addon
-            $matchedAddon = null;
-            foreach (ADDON_DATA as $aSlug => $aData) {
-                if (($aData['lemon_variant'] ?? '') === $variantId) {
-                    $matchedAddon = $aSlug;
-                    break;
-                }
-            }
-
-            // Also check plan lifetime variants (in case it's a lifetime plan)
-            if (!$matchedAddon) {
-                foreach (PLAN_DATA as $planKey => $planInfo) {
-                    if (($planInfo['lemon_lifetime'] ?? '') === $variantId) {
-                        // It's a lifetime plan purchase — handle as plan upgrade
-                        $pdo->prepare("UPDATE users SET plan = ?, billing_cycle = 'lifetime' WHERE id = ?")
-                            ->execute([$planKey, $userId]);
-                        break;
-                    }
-                }
-                break;
-            }
-
-            // Expand bundle → individual addon slugs
-            $slugsToGrant = !empty(ADDON_DATA[$matchedAddon]['includes'])
-                ? ADDON_DATA[$matchedAddon]['includes']
-                : [$matchedAddon];
-
-            // Ensure addons table rows exist, then upsert user_addons
-            foreach ($slugsToGrant as $grantSlug) {
-                $addonInfo = ADDON_DATA[$grantSlug] ?? null;
-                if (!$addonInfo) continue;
-
-                // Ensure addon exists in addons table
-                $pdo->prepare("INSERT IGNORE INTO addons (slug, name, price) VALUES (?,?,?)")
-                    ->execute([$grantSlug, $addonInfo['name'], $addonInfo['price']]);
-
-                $addonRow = $pdo->prepare("SELECT id FROM addons WHERE slug = ?");
-                $addonRow->execute([$grantSlug]);
-                $addonId = $addonRow->fetchColumn();
-                if (!$addonId) continue;
-
-                $pdo->prepare("
-                    INSERT INTO user_addons (user_id, addon_id, order_id, is_active, purchased_at)
-                    VALUES (?, ?, ?, 1, NOW())
-                    ON DUPLICATE KEY UPDATE is_active = 1, order_id = ?
-                ")->execute([$userId, $addonId, $orderId, $orderId]);
-
-                $auditLogger->setUserId($userId);
-                $auditLogger->log('addon_purchased', 'payment', 'success', [
-                    'target_type' => 'addon',
-                    'target_id' => $grantSlug,
-                    'request_data' => [
-                        'order_id' => $orderId,
-                        'gateway' => 'lemonsqueezy',
-                        'variant_id' => $variantId
-                    ]
-                ]);
             }
 
             break;
