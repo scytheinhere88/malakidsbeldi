@@ -2,11 +2,12 @@
 // Run this via cron on 1st of each month:
 // 0 0 1 * * php /path/to/public_html/api/rollover.php
 require_once dirname(__DIR__).'/config.php';
-$secret=$_GET['secret']??$_SERVER['argv'][1]??'';
-if(php_sapi_name()!=='cli'&&$secret!=='CHANGE_THIS_CRON_SECRET'){http_response_code(403);exit;}
+
+requireCronAuth();
+requireCronLock('cron_rollover');
 
 $month=date('Y-m',strtotime('-1 month'));
-$users=db()->query("SELECT * FROM users WHERE plan IN('pro','platinum') AND status='active'")->fetchAll();
+$users=db()->query("SELECT * FROM users WHERE plan IN('pro','platinum') AND deleted_at IS NULL")->fetchAll();
 $processed=0;
 foreach($users as $u){
   $plan_data=getPlan($u['plan']);

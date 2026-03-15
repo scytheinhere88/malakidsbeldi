@@ -131,6 +131,7 @@ $product_identifier = $product_name ?: $product_id;
 $plan = 'free';
 $cycle = 'none';
 $months = 1;
+$amount = 0;
 
 // Map product_id/permalink to plans
 // Supports both product_name (Gumroad title) and permalink matching
@@ -183,6 +184,13 @@ if ($plan === 'free') {
 
 $expires = $cycle === 'lifetime' ? null : date('Y-m-d H:i:s', strtotime("+{$months} months"));
 
+$priceData = [
+    'pro'      => ['monthly' => 29, 'annual' => 199, 'addon' => 29],
+    'platinum' => ['monthly' => 79, 'annual' => 699],
+    'lifetime' => ['lifetime' => 299]
+];
+$amount = $priceData[$plan][$cycle] ?? (float)str_replace(',', '', $data['price'] ?? '0');
+
 // ============================================
 // FIND OR CREATE USER
 // ============================================
@@ -194,6 +202,18 @@ $licenseGen = new LicenseGenerator($pdo);
 $auditLogger = new AuditLogger($pdo);
 
 try {
+    // Duplicate sale detection — idempotency guard
+    if ($sale_id) {
+        $dupCheck = $pdo->prepare("SELECT id FROM users WHERE gumroad_sale_id = ? LIMIT 1");
+        $dupCheck->execute([$sale_id]);
+        if ($dupCheck->fetch()) {
+            error_log("Gumroad webhook: Duplicate sale_id {$sale_id} — already processed, skipping");
+            $monitor->end(200);
+            http_response_code(200);
+            exit('ok');
+        }
+    }
+
     $us = $pdo->prepare("SELECT id, name, plan as old_plan FROM users WHERE email=?");
     $us->execute([$email]);
     $u = $us->fetch();
@@ -344,13 +364,6 @@ try {
         die(json_encode(['success' => false, 'error' => 'Database transaction failed']));
     }
 
-    $priceData = [
-        'pro' => ['monthly' => 29, 'annual' => 199, 'addon' => 29],
-        'platinum' => ['monthly' => 79, 'annual' => 699],
-        'lifetime' => ['lifetime' => 299]
-    ];
-    $amount = $priceData[$plan][$cycle] ?? 0;
-
     $analytics->trackConversion(
         $userId,
         'plan_purchase',
@@ -367,10 +380,28 @@ try {
     );
 
     if ($isNewUser) {
+        // Generate a one-time set-password token so new user can access their account
+        $resetToken = bin2hex(random_bytes(32));
+        $tokenExpiry = date('Y-m-d H:i:s', strtotime('+72 hours'));
+
+        try {
+            $pdo->prepare("
+                INSERT INTO password_resets (email, token, expires_at, created_at)
+                VALUES (?, ?, ?, NOW())
+                ON DUPLICATE KEY UPDATE token = VALUES(token), expires_at = VALUES(expires_at), created_at = NOW()
+            ")->execute([$email, $resetToken, $tokenExpiry]);
+        } catch (Exception $tokenEx) {
+            error_log("Gumroad webhook: Failed to create reset token for new user - " . $tokenEx->getMessage());
+        }
+
+        $setPasswordUrl = APP_URL . '/auth/reset_password.php?token=' . $resetToken . '&email=' . urlencode($email);
+
         $emailSystem->sendFromTemplate('welcome', $email, $userName, [
-            'user_name' => $userName,
-            'plan_name' => ucfirst($plan) . ' Plan'
-        ], $userId, 3);
+            'user_name'        => $userName,
+            'plan_name'        => ucfirst($plan) . ' Plan',
+            'set_password_url' => $setPasswordUrl,
+            'login_url'        => APP_URL . '/auth/login.php'
+        ], $userId, 1);
     }
 
     $emailSystem->sendFromTemplate('license_delivery', $email, $userName, [

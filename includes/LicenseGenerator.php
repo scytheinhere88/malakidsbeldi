@@ -28,14 +28,16 @@ class LicenseGenerator
     {
         try {
             $result = $this->conn->query("SHOW COLUMNS FROM users LIKE 'billing_cycle'")->fetch();
-            error_log("Current billing_cycle type: " . ($result ? $result['Type'] : 'NOT FOUND'));
 
-            if ($result && strpos($result['Type'], 'lifetime') === false) {
-                error_log("Updating billing_cycle to include 'lifetime'...");
-                $this->conn->exec("ALTER TABLE users MODIFY COLUMN billing_cycle ENUM('monthly', 'yearly', 'lifetime', 'annual') NULL DEFAULT NULL");
-                error_log("billing_cycle enum updated successfully");
-            } else {
-                error_log("billing_cycle already includes 'lifetime' or column doesn't exist");
+            if ($result) {
+                $needsUpdate = strpos($result['Type'], 'none') === false
+                    || strpos($result['Type'], 'addon') === false
+                    || strpos($result['Type'], 'lifetime') === false;
+
+                if ($needsUpdate) {
+                    $this->conn->exec("ALTER TABLE users MODIFY COLUMN billing_cycle ENUM('monthly','yearly','annual','lifetime','addon','none') NULL DEFAULT 'none'");
+                    error_log("billing_cycle enum updated to include all required values");
+                }
             }
         } catch (Exception $e) {
             error_log("Failed to update billing_cycle enum: " . $e->getMessage());
@@ -428,13 +430,6 @@ class LicenseGenerator
 
         $this->conn->beginTransaction();
         try {
-            // Ensure billing_cycle enum supports 'lifetime'
-            try {
-                $this->conn->exec("ALTER TABLE users MODIFY COLUMN billing_cycle ENUM('monthly', 'yearly', 'lifetime', 'annual') NULL DEFAULT NULL");
-            } catch (Exception $enumEx) {
-                error_log("Enum already updated or error: " . $enumEx->getMessage());
-            }
-
             $this->saveLicense($systemLicenseKey, $verifiedProduct['product_id'], $saleId, $purchaseEmail, [
                 'gumroad_license' => $licenseKey,
                 'user_id' => $userId,
