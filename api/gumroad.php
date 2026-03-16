@@ -12,39 +12,67 @@ require_once dirname(__DIR__).'/includes/WebhookRetryQueue.php';
 // Gumroad sekarang pakai "Ping" bukan webhook.
 // Ping mengirim POST data yang sama dengan webhook lama,
 // tapi TANPA signature header.
-// Keamanan: pakai secret token di URL query string.
-// URL format: /api/gumroad.php?token=YOUR_PING_TOKEN
+//
+// Token priority (most secure first):
+//   1. X-Gumroad-Signature header (HMAC — webhook mode)
+//   2. X-Ping-Token header (preferred — not logged)
+//   3. ?token= query string (legacy — still supported but logs warning)
 // ============================================
 
-$pingToken     = $_GET['token'] ?? '';
 $configToken   = defined('GUMROAD_PING_TOKEN') ? GUMROAD_PING_TOKEN : '';
 $signature     = $_SERVER['HTTP_X_GUMROAD_SIGNATURE'] ?? '';
 $webhookSecret = defined('GUMROAD_WEBHOOK_SECRET') ? GUMROAD_WEBHOOK_SECRET : '';
 
-$isWebhook = !empty($signature) && !empty($webhookSecret);
-$isPing    = !empty($configToken) && !empty($pingToken);
+// Prefer header-based token over query string to avoid server log exposure
+$pingTokenHeader = $_SERVER['HTTP_X_PING_TOKEN'] ?? '';
+$pingTokenQuery  = $_GET['token'] ?? '';
 
-if (!$isWebhook && !$isPing) {
-    error_log('Gumroad: Missing auth — no signature and no ping token. Configure GUMROAD_PING_TOKEN or GUMROAD_WEBHOOK_SECRET.');
-    http_response_code(403);
-    exit('Unauthorized');
+if (!empty($pingTokenHeader)) {
+    $pingToken = $pingTokenHeader;
+} elseif (!empty($pingTokenQuery)) {
+    // Legacy query string token — warn in logs, token appears in server access logs
+    error_log('SECURITY WARNING: Gumroad ping token passed via query string. Switch to X-Ping-Token header to prevent token exposure in server logs.');
+    $pingToken = $pingTokenQuery;
+} else {
+    $pingToken = '';
 }
 
-// Validate based on auth method
-if ($isWebhook) {
+$hasWebhookSecret = !empty($webhookSecret);
+$hasSignature     = !empty($signature);
+$hasPingConfig    = !empty($configToken);
+$hasPingToken     = !empty($pingToken);
+
+// SECURITY: If webhook secret is configured, ALWAYS require HMAC signature.
+// Do not allow fallback to ping token when HMAC is configured — that would allow
+// an attacker to bypass HMAC by simply omitting the signature header.
+if ($hasWebhookSecret) {
+    if (!$hasSignature) {
+        error_log('Gumroad: HMAC secret is configured but no X-Gumroad-Signature header received.');
+        http_response_code(403);
+        exit('Unauthorized');
+    }
     $rawBody = file_get_contents('php://input');
     $expected = hash_hmac('sha256', $rawBody, $webhookSecret);
     if (!hash_equals($expected, $signature)) {
-        error_log('Gumroad webhook: Invalid signature');
+        error_log('Gumroad webhook: Invalid HMAC signature');
         http_response_code(403);
         exit('Invalid signature');
     }
-} elseif ($isPing) {
+} elseif ($hasPingConfig) {
+    if (!$hasPingToken) {
+        error_log('Gumroad: Ping token configured but no token received in request.');
+        http_response_code(403);
+        exit('Unauthorized');
+    }
     if (!hash_equals($configToken, $pingToken)) {
         error_log('Gumroad Ping: Invalid token');
         http_response_code(403);
         exit('Invalid token');
     }
+} else {
+    error_log('Gumroad: No auth method configured. Set GUMROAD_WEBHOOK_SECRET (preferred) or GUMROAD_PING_TOKEN in .env');
+    http_response_code(403);
+    exit('Unauthorized');
 }
 
 // ============================================

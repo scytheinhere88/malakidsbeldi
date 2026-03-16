@@ -350,12 +350,34 @@ function buildSummary(){
 }
 
 // ── MAIN RUN ───────────────────────────────────────────
+let quotaToken=null;
+
 async function startRun(){
   if(isRunning)return;
-  // Quota check before running
+  // Client-side pre-check (UX only — server will re-verify)
   if(QUOTA_LIMIT!==Infinity&&csvData.length>QUOTA_LIMIT){
     toast(`Quota exceeded: ${csvData.length} rows > ${QUOTA_LIMIT} remaining`,'err');return;
   }
+
+  // Server-side pre-flight quota reservation — this is the authoritative check
+  try{
+    const fd=new FormData();
+    fd.append('action','reserve');
+    fd.append('csv_rows',csvData.length);
+    fd.append('job_type','bulk_replace');
+    fd.append('csrf_token','<?= csrf_token() ?>');
+    const res=await fetch('/api/usage.php',{method:'POST',body:fd});
+    const data=await res.json();
+    if(!data.ok){
+      toast(data.msg||'Quota check failed. Please try again.','err');
+      return;
+    }
+    quotaToken=data.token;
+  }catch(e){
+    toast('Could not verify quota. Check your connection.','err');
+    return;
+  }
+
   isRunning=true;zipResult=null;
   const fc=document.getElementById('fc-sel').value;
   const om=document.getElementById('out-mode').value;
@@ -369,7 +391,7 @@ async function startRun(){
     if(folderMode==='modern'&&!useZip)await runInPlace(fc);
     else await runZip(fc);
   }catch(e){log('err','⛔ '+e.message);toast(e.message,'err');}
-  // Log usage to server
+  // Confirm usage with the reservation token so server logs the actual row count
   await logUsage(csvData.length,stats.u);
   isRunning=false;
   showDone(useZip&&zipResult!==null);
@@ -451,12 +473,17 @@ async function downloadZip(){
   btn.innerHTML='📦 Download ZIP';btn.disabled=false;
 }
 
-// Usage logging to server
+// Usage logging to server — includes quota_token from server-issued reservation
 async function logUsage(rows,files,jobType='bulk_replace'){
   try{
-    const fd=new FormData();fd.append('action','log');fd.append('csv_rows',rows);fd.append('files_updated',files);
-    fd.append('job_type',jobType);fd.append('job_name',csvFilename||'');
+    const fd=new FormData();
+    fd.append('action','log');
+    fd.append('csv_rows',rows);
+    fd.append('files_updated',files);
+    fd.append('job_type',jobType);
+    fd.append('job_name',csvFilename||'');
     fd.append('csrf_token','<?= csrf_token() ?>');
+    if(quotaToken){fd.append('quota_token',quotaToken);quotaToken=null;}
     await fetch('/api/usage.php',{method:'POST',body:fd});
   }catch(e){}
 }

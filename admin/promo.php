@@ -23,7 +23,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $stmt->execute([$code, $discount, $validFrom, $validUntil, $maxUses]);
                     $success = "Promo code created successfully!";
                 } catch (Exception $e) {
-                    $error = "Failed to create promo code: " . $e->getMessage();
+                    error_log("Promo code create error: " . $e->getMessage());
+                    $error = "Failed to create promo code. A code with that name may already exist.";
                 }
             } else {
                 $error = "Invalid promo code data.";

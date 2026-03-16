@@ -31,23 +31,52 @@ function checkApiRateLimit(string $endpoint, int $maxAttempts = 60, int $windowS
         return;
     }
 
-    $rateCheck = $rateLimiter->check($ip, $endpoint, $userTier, $userId);
+    // Use user ID as primary identifier (per-user limits) with IP as fallback.
+    // This ensures each user gets their own quota bucket regardless of shared IPs (NAT/proxies).
+    // Also enforce a secondary IP-based check to catch unauthenticated/misconfigured requests.
+    $identifier = $userId > 0 ? 'user_' . $userId : 'ip_' . $ip;
+
+    $rateCheck = $rateLimiter->check($identifier, $endpoint, $userTier, $userId);
     $rateLimiter->setRateLimitHeaders($rateCheck);
+
+    // Secondary IP-level check — catches shared API keys and coordinated abuse
+    if ($rateCheck['allowed'] && $userId > 0) {
+        $ipCheck = $rateLimiter->check('ip_' . $ip, $endpoint . '_ip', 'free', null);
+        if (!$ipCheck['allowed']) {
+            http_response_code(429);
+            header('Content-Type: application/json');
+            echo json_encode([
+                'ok' => false,
+                'error' => 'Too many requests from your IP address. Please slow down.',
+                'retry_after' => $ipCheck['retry_after'] ?? 60,
+            ]);
+            exit;
+        }
+    }
 
     if (!$rateCheck['allowed']) {
         http_response_code(429);
         header('Content-Type: application/json');
 
-        $message = $rateCheck['reason'] === 'ip_blocked'
-            ? 'Too many requests. Your IP has been temporarily blocked.'
-            : 'Rate limit exceeded. Please slow down.';
+        if ($rateCheck['reason'] === 'ip_blocked') {
+            $message = 'Too many requests. Your IP has been temporarily blocked.';
+        } elseif ($rateCheck['reason'] === 'rate_limit_exceeded') {
+            $limits = EnhancedRateLimiter::TIER_LIMITS[$userTier] ?? EnhancedRateLimiter::TIER_LIMITS['free'];
+            $category = strpos($endpoint, 'csv') !== false ? 'api_csv' : (strpos($endpoint, 'zip') !== false ? 'api_zip' : 'default');
+            $limit = $limits[$category]['limit'] ?? $limits['default']['limit'];
+            $window = $limits[$category]['window'] ?? $limits['default']['window'];
+            $message = "Rate limit exceeded for your plan ({$userTier}): {$limit} requests per {$window}s.";
+        } else {
+            $message = 'Rate limit exceeded. Please slow down.';
+        }
 
         echo json_encode([
             'ok' => false,
             'error' => $message,
             'retry_after' => $rateCheck['retry_after'] ?? 60,
             'attempts' => $rateCheck['attempts'] ?? 0,
-            'tier' => $userTier
+            'plan' => $userTier,
+            'limit' => $rateCheck['max_attempts'] ?? null,
         ]);
         exit;
     }

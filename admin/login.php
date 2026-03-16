@@ -26,6 +26,11 @@ if(defined('ADMIN_IP_WHITELIST_ENABLED') && ADMIN_IP_WHITELIST_ENABLED === true)
     }
 }
 
+if (!defined('ADMIN_CONFIGURED') || !ADMIN_CONFIGURED) {
+    http_response_code(503);
+    die('<!DOCTYPE html><html><head><title>Admin Unavailable</title><style>body{font-family:sans-serif;text-align:center;padding:100px;background:#0a0a0a;color:#999;}h1{color:#ff4560;}</style></head><body><h1>Admin Panel Unavailable</h1><p>Admin credentials are not configured. Set ADMIN_USERNAME and ADMIN_PASS_HASH in .env</p></body></html>');
+}
+
 if($_SERVER['REQUEST_METHOD']==='POST'){
     if(!csrf_verify()){
         $err = 'Security validation failed. Please refresh and try again.';
@@ -39,7 +44,7 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
                 'target_type' => 'admin',
                 'target_id' => $u
             ]);
-        } elseif($u===ADMIN_USERNAME && password_verify($p,ADMIN_PASS_HASH)){
+        } elseif(!empty($u) && !empty($p) && $u===ADMIN_USERNAME && password_verify($p,ADMIN_PASS_HASH)){
             $securityManager->clearFailedLoginAttempts('admin_' . $u, $ipAddress);
 
             $_SESSION['is_admin'] = true;
