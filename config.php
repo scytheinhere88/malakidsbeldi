@@ -88,32 +88,10 @@ define('DB_PASS', $_ENV['DB_PASS'] ?? '');
 // ============================================
 define('APP_NAME', 'BulkReplace');
 define('APP_URL',  'https://bulkreplacetool.com');
-define('APP_SALT', $_ENV['APP_SALT'] ?? bin2hex(random_bytes(32)));
 define('SUPPORT_TELEGRAM', '@scytheinhere');
 define('SUPPORT_TELEGRAM_URL', 'https://t.me/scytheinhere');
 define('SESSION_NAME', 'br_saas');
 define('DEFAULT_LANG', 'en');
-
-define('SESSION_LIFETIME',        86400);
-define('SESSION_ADMIN_TIMEOUT',   1800);
-define('SESSION_USER_TIMEOUT',    43200);
-define('SESSION_SID_LENGTH',      48);
-define('SESSION_SID_BITS',        6);
-
-// Set FORCE_HTTPS=true in .env when running on HTTPS-only hosting
-// Set TRUST_PROXY=true in .env when behind a trusted reverse proxy (Nginx, Cloudflare, etc.)
-define('FORCE_HTTPS', filter_var($_ENV['FORCE_HTTPS'] ?? 'true', FILTER_VALIDATE_BOOLEAN));
-define('TRUST_PROXY', filter_var($_ENV['TRUST_PROXY'] ?? 'false', FILTER_VALIDATE_BOOLEAN));
-
-// ============================================
-// SECURITY HEADERS — applied to ALL responses (after constants are defined)
-// ============================================
-if (file_exists(__DIR__ . '/includes/SecurityHeaders.php')) {
-    require_once __DIR__ . '/includes/SecurityHeaders.php';
-    if (!headers_sent()) {
-        SecurityHeaders::apply();
-    }
-}
 
 // ============================================
 // PAYMENT GATEWAYS
@@ -124,22 +102,9 @@ define('GUMROAD_ACCESS_TOKEN',  $_ENV['GUMROAD_ACCESS_TOKEN'] ?? '');
 
 // ============================================
 // ADMIN CREDENTIALS
-// Both ADMIN_USERNAME and ADMIN_PASS_HASH must be set in .env
-// To generate ADMIN_PASS_HASH: php -r "echo password_hash('yourpassword', PASSWORD_BCRYPT, ['cost'=>12]);"
 // ============================================
-$adminUsername = $_ENV['ADMIN_USERNAME'] ?? '';
-$adminPassHash = $_ENV['ADMIN_PASS_HASH'] ?? '';
-if (empty($adminUsername) || empty($adminPassHash)) {
-    error_log('SECURITY: ADMIN_USERNAME and ADMIN_PASS_HASH must be set in .env. Admin panel is disabled.');
-    define('ADMIN_USERNAME', '');
-    define('ADMIN_PASS_HASH', '');
-    define('ADMIN_CONFIGURED', false);
-} else {
-    define('ADMIN_USERNAME', $adminUsername);
-    define('ADMIN_PASS_HASH', $adminPassHash);
-    define('ADMIN_CONFIGURED', true);
-}
-unset($adminUsername, $adminPassHash);
+define('ADMIN_USERNAME', $_ENV['ADMIN_USERNAME'] ?? 'scythe_admin');
+define('ADMIN_PASS_HASH', $_ENV['ADMIN_PASS_HASH'] ?? '');
 
 // ============================================
 // API KEYS
@@ -274,28 +239,7 @@ function getAddonSlugs(string $purchasedSlug): array {
 
 function db():PDO {
   static $p=null; if($p)return $p;
-  try {
-    $p=new PDO(
-      "mysql:host=".DB_HOST.";dbname=".DB_NAME.";charset=utf8mb4",
-      DB_USER,
-      DB_PASS,
-      [PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC]
-    );
-  } catch (PDOException $e) {
-    error_log("Database connection failed: " . $e->getMessage());
-    if (php_sapi_name() === 'cli') {
-      fwrite(STDERR, "Database connection failed: " . $e->getMessage() . "\n");
-      exit(1);
-    }
-    http_response_code(503);
-    $isJson = (strpos($_SERVER['HTTP_ACCEPT'] ?? '', 'application/json') !== false)
-           || (strpos($_SERVER['REQUEST_URI'] ?? '', '/api/') !== false);
-    if ($isJson) {
-      header('Content-Type: application/json');
-      die(json_encode(['success' => false, 'error' => 'Service temporarily unavailable. Please try again later.']));
-    }
-    die('Service temporarily unavailable. Please try again later.');
-  }
+  $p=new PDO("mysql:host=".DB_HOST.";dbname=".DB_NAME.";charset=utf8mb4",DB_USER,DB_PASS,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC]);
 
   if(file_exists(__DIR__.'/includes/AutoMigration.php')){
     require_once __DIR__.'/includes/AutoMigration.php';
@@ -319,49 +263,37 @@ function ss(){
     return;
   }
 
-  // SecurityHeaders::apply() is already called at config load time.
-  // Only apply here for session cookie settings which require an active session context.
-  if(class_exists('SecurityHeaders') && !headers_sent()){
+  if(file_exists(__DIR__.'/includes/SecurityHeaders.php')){
+    require_once __DIR__.'/includes/SecurityHeaders.php';
     SecurityHeaders::apply();
   }
 
-  // Force HTTPS detection from environment or trusted server vars only
-  // Prevents header spoofing when behind a reverse proxy
-  $https = (defined('FORCE_HTTPS') && FORCE_HTTPS === true)
-    || (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-    || (($_SERVER['SERVER_PORT'] ?? 80) == 443)
-    || (!empty($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https' && (defined('TRUST_PROXY') && TRUST_PROXY === true));
-  $sessdir = $_ENV['SESSION_SAVE_PATH'] ?? '';
+  $https = (!empty($_SERVER['HTTPS'])&&$_SERVER['HTTPS']!=='off')||($_SERVER['SERVER_PORT']??80)==443;
+  $sessdir = '/home/bulkreplacetool.com/tmp/sessions';
 
-  if($sessdir) {
-    if(!is_dir($sessdir) && !headers_sent()) {
-      @mkdir($sessdir, 0700, true);
-    }
-    if(!is_dir($sessdir) || !is_writable($sessdir)) {
-      $sessdir = '';
-    }
-  }
-
-  if(!$sessdir) {
-    $sessdir = sys_get_temp_dir();
+  // Only try to create directory if not in production/already running
+  if(!is_dir($sessdir) && !headers_sent()) {
+    @mkdir($sessdir, 0700, true);
   }
 
   // Set session configuration BEFORE session_start
   if(!headers_sent()){
-    if(is_writable($sessdir)){
+    if(is_dir($sessdir) && is_writable($sessdir)){
       ini_set('session.save_path', $sessdir);
+    } elseif(is_writable(sys_get_temp_dir())) {
+      ini_set('session.save_path', sys_get_temp_dir());
     }
     ini_set('session.cookie_httponly',  1);
     ini_set('session.cookie_secure',    $https ? 1 : 0);
     ini_set('session.cookie_samesite',  'Strict');
     ini_set('session.use_strict_mode',  1);
     ini_set('session.use_only_cookies', 1);
-    ini_set('session.gc_maxlifetime',   SESSION_LIFETIME);
-    ini_set('session.sid_length',       SESSION_SID_LENGTH);
-    ini_set('session.sid_bits_per_character', SESSION_SID_BITS);
+    ini_set('session.gc_maxlifetime',   86400);
+    ini_set('session.sid_length',       48);
+    ini_set('session.sid_bits_per_character', 6);
     session_name(SESSION_NAME);
     if(PHP_VERSION_ID >= 70300){
-      session_set_cookie_params(['lifetime'=>SESSION_LIFETIME,'path'=>'/','httponly'=>true,'secure'=>$https,'samesite'=>'Strict']);
+      session_set_cookie_params(['lifetime'=>86400,'path'=>'/','httponly'=>true,'secure'=>$https,'samesite'=>'Strict']);
     }
     session_start();
   }
@@ -378,32 +310,12 @@ function ss(){
   }
 }
 function startSession(){ss();}
-function isLoggedIn():bool{ss();if(empty($_SESSION['uid']))return false;if(time()-($_SESSION['lt']??0)>SESSION_USER_TIMEOUT){session_destroy();return false;}$_SESSION['lt']=time();return true;}
-function requireLogin(): void {if(!isLoggedIn()){header('Location:'.APP_URL.'/auth/login.php?next='.urlencode($_SERVER['REQUEST_URI']));exit;}}
-function isAdmin():bool{
-  ss();
-  if(empty($_SESSION['is_admin']))return false;
-  $adminTimeout = SESSION_ADMIN_TIMEOUT;
-  if(time()-($_SESSION['admin_lt']??0)>$adminTimeout){
-    $_SESSION['is_admin']=false;
-    unset($_SESSION['admin_lt'],$_SESSION['admin_id']);
-    return false;
-  }
-  $_SESSION['admin_lt']=time();
-  return true;
-}
-function requireAdmin(): void {
-  ss();
-  if(!isAdmin()){
-    $expired = !empty($_SESSION['is_admin_was_set']);
-    unset($_SESSION['is_admin_was_set']);
-    $loc = APP_URL.'/admin/login.php'.($expired?'?msg=session_expired':'');
-    header('Location:'.$loc);
-    exit;
-  }
-}
+function isLoggedIn():bool{ss();if(empty($_SESSION['uid']))return false;if(time()-($_SESSION['lt']??0)>43200){session_destroy();return false;}$_SESSION['lt']=time();return true;}
+function requireLogin(){if(!isLoggedIn()){header('Location:'.APP_URL.'/auth/login.php?next='.urlencode($_SERVER['REQUEST_URI']));exit;}}
+function isAdmin():bool{ss();return !empty($_SESSION['is_admin']);}
+function requireAdmin(){ss();if(!isAdmin()){header('Location:'.APP_URL.'/admin/login.php');exit;}}
 function verifyCronAuth():bool{if(php_sapi_name()==='cli')return true;$key=$_GET['key']??$_POST['key']??'';return hash_equals(CRON_AUTH_KEY,$key);}
-function requireCronAuth(): void {if(!verifyCronAuth()){http_response_code(401);header('Content-Type:application/json');echo json_encode(['success'=>false,'error'=>'Unauthorized']);exit;}}
+function requireCronAuth(){if(!verifyCronAuth()){http_response_code(401);header('Content-Type:application/json');echo json_encode(['success'=>false,'error'=>'Unauthorized']);exit;}}
 function currentUser():?array{if(!isLoggedIn())return null;$s=db()->prepare("SELECT * FROM users WHERE id=?");$s->execute([$_SESSION['uid']]);return $s->fetch()?:null;}
 function getPlan(string $k):array{return PLAN_DATA[$k]??PLAN_DATA['free'];}
 function getUserQuota(int $uid, bool $useCache = true):array{
@@ -434,7 +346,7 @@ function logUsage(int $uid,int $rows,int $files,string $jobType='bulk_replace',?
 function ago(string $dt):string{$d=time()-strtotime($dt);if($d<60)return'just now';if($d<3600)return floor($d/60).'m ago';if($d<86400)return floor($d/3600).'h ago';return floor($d/86400).'d ago';}
 
 function getLang():string{ss();return $_SESSION['lang']??$_COOKIE['lang']??DEFAULT_LANG;}
-function setLang(string $l): void {ss();$_SESSION['lang']=$l;setcookie('lang',$l,time()+31536000,'/');}
+function setLang(string $l){ss();$_SESSION['lang']=$l;setcookie('lang',$l,time()+31536000,'/');}
 function t(string $k):string{static $t=null;if(!$t){$l=getLang();$l=preg_match('/^[a-z]{2}(_[a-z]{2,4})?$/i',$l)?$l:DEFAULT_LANG;$f=__DIR__.'/lang/'.$l.'.php';$t=file_exists($f)?require $f:require __DIR__.'/lang/'.DEFAULT_LANG.'.php';}return $t[$k]??$k;}
 
 // Addons that are ALWAYS sold separately, even for has_addons plans
@@ -512,22 +424,6 @@ function require_csrf(): void {
   }
 }
 
-define('MAX_PAYLOAD_DEFAULT',    2 * 1024 * 1024);
-define('MAX_PAYLOAD_CSV',       32 * 1024 * 1024);
-define('MAX_PAYLOAD_ZIP',      256 * 1024 * 1024);
-
-function enforce_payload_limit(int $maxBytes = MAX_PAYLOAD_DEFAULT): void {
-  $contentLength = (int)($_SERVER['CONTENT_LENGTH'] ?? 0);
-  if ($contentLength > $maxBytes) {
-    http_response_code(413);
-    header('Content-Type: application/json');
-    die(json_encode([
-      'ok'    => false,
-      'error' => 'Payload too large. Maximum allowed: ' . round($maxBytes / 1024 / 1024, 1) . ' MB.',
-    ]));
-  }
-}
-
 // ============================================
 // DISTRIBUTED CRON LOCK (MySQL GET_LOCK)
 // Prevents race conditions when cron runs twice simultaneously
@@ -566,59 +462,4 @@ function requireCronLock(string $lockName): void {
   register_shutdown_function(function() use ($lockName) {
     releaseCronLock($lockName);
   });
-}
-
-// ============================================
-// ATOMIC PROMO CODE REDEMPTION
-// Uses SELECT ... FOR UPDATE to prevent race conditions when multiple requests
-// try to redeem the same single-use promo code simultaneously.
-// Returns the promo row on success, or null if invalid/exhausted/already used by this user.
-// ============================================
-function redeemPromoCode(string $code, int $userId): ?array {
-  $pdo = db();
-  try {
-    $pdo->beginTransaction();
-
-    $stmt = $pdo->prepare("
-      SELECT * FROM promo_codes
-      WHERE code = ?
-        AND is_active = 1
-        AND valid_from  <= NOW()
-        AND valid_until >= NOW()
-      FOR UPDATE
-    ");
-    $stmt->execute([$code]);
-    $promo = $stmt->fetch();
-
-    if (!$promo) {
-      $pdo->rollBack();
-      return null;
-    }
-
-    if ($promo['max_uses'] !== null && (int)$promo['current_uses'] >= (int)$promo['max_uses']) {
-      $pdo->rollBack();
-      return null;
-    }
-
-    // Check if this user already redeemed this code
-    $check = $pdo->prepare("SELECT id FROM promo_redemptions WHERE promo_code_id = ? AND user_id = ? LIMIT 1");
-    $check->execute([$promo['id'], $userId]);
-    if ($check->fetch()) {
-      $pdo->rollBack();
-      return null;
-    }
-
-    // Record redemption and increment usage counter atomically
-    $pdo->prepare("INSERT INTO promo_redemptions (promo_code_id, user_id, redeemed_at) VALUES (?, ?, NOW())")
-      ->execute([$promo['id'], $userId]);
-    $pdo->prepare("UPDATE promo_codes SET current_uses = current_uses + 1 WHERE id = ?")
-      ->execute([$promo['id']]);
-
-    $pdo->commit();
-    return $promo;
-  } catch (Exception $e) {
-    if ($pdo->inTransaction()) $pdo->rollBack();
-    error_log("redeemPromoCode error: " . $e->getMessage());
-    return null;
-  }
 }

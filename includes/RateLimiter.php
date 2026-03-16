@@ -118,32 +118,14 @@ class RateLimiter {
         ")->execute([$identifier, $endpoint]);
     }
 
-    public function setRateLimitHeaders(array $result): void {
-        if (headers_sent()) return;
-        $limit     = $result['max_attempts'] ?? null;
-        $remaining = $result['remaining'] ?? ($result['allowed'] ? ($limit - ($result['attempts'] ?? 0)) : 0);
-        $retryAfter = $result['retry_after'] ?? null;
-
-        if ($limit !== null) {
-            header('X-RateLimit-Limit: ' . (int)$limit);
-        }
-        header('X-RateLimit-Remaining: ' . max(0, (int)$remaining));
-        if (!$result['allowed'] && $retryAfter !== null) {
-            header('Retry-After: ' . (int)$retryAfter);
-            header('X-RateLimit-Reset: ' . (time() + (int)$retryAfter));
-        }
-    }
-
     private function cleanup(): void {
-    }
-
-    public function purgeExpired(): int {
-        $stmt = $this->db->exec("
-            DELETE FROM rate_limits
-            WHERE window_start < DATE_SUB(NOW(), INTERVAL 24 HOUR)
-            AND (blocked_until IS NULL OR blocked_until < NOW())
-        ");
-        return (int)$stmt;
+        if (rand(0, 100) > 95) {
+            $this->db->exec("
+                DELETE FROM rate_limits
+                WHERE window_start < DATE_SUB(NOW(), INTERVAL 24 HOUR)
+                AND (blocked_until IS NULL OR blocked_until < NOW())
+            ");
+        }
     }
 
     public function getStats(string $endpoint = null): array {

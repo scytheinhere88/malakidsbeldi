@@ -3,7 +3,6 @@ require_once __DIR__ . '/../config.php';
 requireLogin();
 $user       = currentUser();
 $has_access = hasAddonAccess($user['id'], 'csv-generator-pro');
-if(!$has_access){ header('Location: /dashboard/addons.php?ref=csv-generator-pro'); exit; }
 $api_key_ok = defined('GOOGLE_PLACES_API_KEY') && GOOGLE_PLACES_API_KEY !== 'YOUR_GOOGLE_PLACES_API_KEY';
 ?>
 <!DOCTYPE html>

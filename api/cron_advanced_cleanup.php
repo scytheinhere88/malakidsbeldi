@@ -156,14 +156,6 @@ try {
     $stmt->execute();
     $stats['temp_data_deleted'] = $stmt->rowCount();
 
-    // Cleanup basic rate_limits table (window-based)
-    $rlDeleted = $db->exec("
-        DELETE FROM rate_limits
-        WHERE window_start < DATE_SUB(NOW(), INTERVAL 24 HOUR)
-        AND (blocked_until IS NULL OR blocked_until < NOW())
-    ");
-    $stats['temp_data_deleted'] += (int)$rlDeleted;
-
     // ============================================
     // 9. OPTIMIZE TABLES AFTER CLEANUP
     // ============================================
@@ -224,10 +216,11 @@ try {
 
 } catch (Exception $e) {
     http_response_code(500);
-    error_log("cron_advanced_cleanup error: " . $e->getMessage() . " in " . $e->getFile() . ":" . $e->getLine());
     echo json_encode([
         'success' => false,
-        'error' => defined('DEBUG_MODE') && DEBUG_MODE ? $e->getMessage() : 'Cleanup failed. Check server logs.',
+        'error' => $e->getMessage(),
+        'file' => $e->getFile(),
+        'line' => $e->getLine(),
         'stats' => $stats
     ], JSON_PRETTY_PRINT);
 

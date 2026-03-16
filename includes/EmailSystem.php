@@ -43,22 +43,16 @@ class EmailSystem {
     }
 
     public function sendFromTemplate($templateKey, $toEmail, $toName, $variables, $userId = null, $priority = 5, $metadata = null) {
-        try {
-            $stmt = $this->pdo->prepare("
-                SELECT subject, body_html, body_text
-                FROM email_templates
-                WHERE template_key = :key AND is_active = 1
-            ");
-            $stmt->execute(['key' => $templateKey]);
-            $template = $stmt->fetch(PDO::FETCH_ASSOC);
-        } catch (Exception $e) {
-            error_log("EmailSystem: failed to query email_templates for '{$templateKey}': " . $e->getMessage());
-            return false;
-        }
+        $stmt = $this->pdo->prepare("
+            SELECT subject, body_html, body_text
+            FROM email_templates
+            WHERE template_key = :key AND is_active = 1
+        ");
+        $stmt->execute(['key' => $templateKey]);
+        $template = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if (!$template) {
-            error_log("EmailSystem: template '{$templateKey}' not found or inactive in email_templates table. Verify the template exists and is_active=1.");
-            return false;
+            throw new Exception("Email template '{$templateKey}' not found");
         }
 
         if ($userId) {
@@ -112,23 +106,8 @@ class EmailSystem {
     }
 
     private function replaceVariables($text, $variables) {
-        // Safe URL/path keys that must NOT be HTML-escaped
-        $urlKeys = ['app_url', 'dashboard_url', 'billing_url', 'reset_link', 'verify_link', 'unsubscribe_url'];
-
         foreach ($variables as $key => $value) {
-            $safeValue = (string)$value;
-
-            // HTML-escape all values except known safe URL variables to prevent injection
-            if (!in_array($key, $urlKeys, true)) {
-                $safeValue = htmlspecialchars($safeValue, ENT_QUOTES | ENT_HTML5, 'UTF-8');
-            } else {
-                // For URL values, only allow http/https schemes and strip dangerous protocols
-                if (!preg_match('/^https?:\/\//i', $safeValue)) {
-                    $safeValue = htmlspecialchars($safeValue, ENT_QUOTES | ENT_HTML5, 'UTF-8');
-                }
-            }
-
-            $text = str_replace('{{' . $key . '}}', $safeValue, $text);
+            $text = str_replace('{{' . $key . '}}', $value, $text);
         }
         return $text;
     }

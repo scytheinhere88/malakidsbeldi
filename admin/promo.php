@@ -18,38 +18,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $maxUses = !empty($_POST['max_uses']) ? intval($_POST['max_uses']) : null;
 
             if ($code && $discount > 0 && $discount <= 100) {
-                if (strtotime($validUntil) <= strtotime($validFrom)) {
-                    $error = "Valid Until must be after Valid From.";
-                } else {
-                    try {
-                        $stmt = $db->prepare("INSERT INTO promo_codes (code, discount_percent, valid_from, valid_until, max_uses) VALUES (?, ?, ?, ?, ?)");
-                        $stmt->execute([$code, $discount, $validFrom, $validUntil, $maxUses]);
-                        $success = "Promo code created successfully!";
-                    } catch (Exception $e) {
-                        error_log("Promo code create error: " . $e->getMessage());
-                        $error = "Failed to create promo code. A code with that name may already exist.";
-                    }
+                try {
+                    $stmt = $db->prepare("INSERT INTO promo_codes (code, discount_percent, valid_from, valid_until, max_uses) VALUES (?, ?, ?, ?, ?)");
+                    $stmt->execute([$code, $discount, $validFrom, $validUntil, $maxUses]);
+                    $success = "Promo code created successfully!";
+                } catch (Exception $e) {
+                    $error = "Failed to create promo code: " . $e->getMessage();
                 }
             } else {
                 $error = "Invalid promo code data.";
             }
         } elseif ($action === 'fix_time') {
-            $id = (int)($_POST['id'] ?? 0);
-            if ($id > 0) {
+            $id = $_POST['id'] ?? '';
+            if ($id) {
+                // Set valid_from to NOW minus 1 hour to ensure it's active
                 $stmt = $db->prepare("UPDATE promo_codes SET valid_from = DATE_SUB(NOW(), INTERVAL 1 HOUR), updated_at = NOW() WHERE id = ?");
                 $stmt->execute([$id]);
                 $success = "Promo code time fixed! It should now be active.";
             }
         } elseif ($action === 'toggle') {
-            $id = (int)($_POST['id'] ?? 0);
-            if ($id > 0) {
+            $id = $_POST['id'] ?? '';
+            if ($id) {
                 $stmt = $db->prepare("UPDATE promo_codes SET is_active = NOT is_active, updated_at = now() WHERE id = ?");
                 $stmt->execute([$id]);
                 $success = "Promo code status updated!";
             }
         } elseif ($action === 'delete') {
-            $id = (int)($_POST['id'] ?? 0);
-            if ($id > 0) {
+            $id = $_POST['id'] ?? '';
+            if ($id) {
                 $stmt = $db->prepare("DELETE FROM promo_codes WHERE id = ?");
                 $stmt->execute([$id]);
                 $success = "Promo code deleted!";

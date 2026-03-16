@@ -12,67 +12,39 @@ require_once dirname(__DIR__).'/includes/WebhookRetryQueue.php';
 // Gumroad sekarang pakai "Ping" bukan webhook.
 // Ping mengirim POST data yang sama dengan webhook lama,
 // tapi TANPA signature header.
-//
-// Token priority (most secure first):
-//   1. X-Gumroad-Signature header (HMAC — webhook mode)
-//   2. X-Ping-Token header (preferred — not logged)
-//   3. ?token= query string (required for resource_subscriptions — Gumroad tidak support custom headers)
+// Keamanan: pakai secret token di URL query string.
+// URL format: /api/gumroad.php?token=YOUR_PING_TOKEN
 // ============================================
 
+$pingToken     = $_GET['token'] ?? '';
 $configToken   = defined('GUMROAD_PING_TOKEN') ? GUMROAD_PING_TOKEN : '';
 $signature     = $_SERVER['HTTP_X_GUMROAD_SIGNATURE'] ?? '';
 $webhookSecret = defined('GUMROAD_WEBHOOK_SECRET') ? GUMROAD_WEBHOOK_SECRET : '';
 
-// Gumroad resource_subscriptions POST ke URL terdaftar tanpa support custom headers.
-// Header X-Ping-Token dipakai untuk manual Ping / custom senders.
-// Query string token (?token=) dipakai oleh resource_subscriptions yang terdaftar via gumroad_setup.php.
-$pingTokenHeader = $_SERVER['HTTP_X_PING_TOKEN'] ?? '';
-$pingTokenQuery  = $_GET['token'] ?? '';
+$isWebhook = !empty($signature) && !empty($webhookSecret);
+$isPing    = !empty($configToken) && !empty($pingToken);
 
-if (!empty($pingTokenHeader)) {
-    $pingToken = $pingTokenHeader;
-} elseif (!empty($pingTokenQuery)) {
-    $pingToken = $pingTokenQuery;
-} else {
-    $pingToken = '';
+if (!$isWebhook && !$isPing) {
+    error_log('Gumroad: Missing auth — no signature and no ping token. Configure GUMROAD_PING_TOKEN or GUMROAD_WEBHOOK_SECRET.');
+    http_response_code(403);
+    exit('Unauthorized');
 }
 
-$hasWebhookSecret = !empty($webhookSecret);
-$hasSignature     = !empty($signature);
-$hasPingConfig    = !empty($configToken);
-$hasPingToken     = !empty($pingToken);
-
-// SECURITY: If webhook secret is configured, ALWAYS require HMAC signature.
-// Do not allow fallback to ping token when HMAC is configured — that would allow
-// an attacker to bypass HMAC by simply omitting the signature header.
-if ($hasWebhookSecret) {
-    if (!$hasSignature) {
-        error_log('Gumroad: HMAC secret is configured but no X-Gumroad-Signature header received.');
-        http_response_code(403);
-        exit('Unauthorized');
-    }
+// Validate based on auth method
+if ($isWebhook) {
     $rawBody = file_get_contents('php://input');
     $expected = hash_hmac('sha256', $rawBody, $webhookSecret);
     if (!hash_equals($expected, $signature)) {
-        error_log('Gumroad webhook: Invalid HMAC signature');
+        error_log('Gumroad webhook: Invalid signature');
         http_response_code(403);
         exit('Invalid signature');
     }
-} elseif ($hasPingConfig) {
-    if (!$hasPingToken) {
-        error_log('Gumroad: Ping token configured but no token received in request.');
-        http_response_code(403);
-        exit('Unauthorized');
-    }
+} elseif ($isPing) {
     if (!hash_equals($configToken, $pingToken)) {
         error_log('Gumroad Ping: Invalid token');
         http_response_code(403);
         exit('Invalid token');
     }
-} else {
-    error_log('Gumroad: No auth method configured. Set GUMROAD_WEBHOOK_SECRET (preferred) or GUMROAD_PING_TOKEN in .env');
-    http_response_code(403);
-    exit('Unauthorized');
 }
 
 // ============================================
@@ -233,10 +205,9 @@ if (!empty($endedAt) || $resourceName === 'subscription_ended') {
 }
 
 // ============================================
-// SUBSCRIPTION RENEWAL / UPDATE HANDLER
+// SUBSCRIPTION RENEWAL HANDLER
 // Triggered by resource_subscriptions: "subscription_updated"
-// Handles: renewal, upgrade, downgrade
-// Syncs billing_cycle from Gumroad "recurrence" field (new_plan.recurrence)
+// Extends plan_expires_at on successful renewal
 // ============================================
 if ($resourceName === 'subscription_updated' && empty($cancelledAt) && empty($endedAt)) {
     $pdo         = db();
@@ -250,23 +221,15 @@ if ($resourceName === 'subscription_updated' && empty($cancelledAt) && empty($en
         $renewedUser = $userStmt->fetch();
 
         if ($renewedUser && $renewedUser['plan'] !== 'free' && $renewedUser['billing_cycle'] !== 'lifetime') {
-            // Sync billing_cycle from Gumroad new_plan.recurrence if available
-            // Gumroad sends: monthly / quarterly / biannually / yearly / every_two_years
-            $newPlanData  = isset($data['new_plan']) && is_string($data['new_plan']) ? json_decode($data['new_plan'], true) : ($data['new_plan'] ?? null);
-            $recurrence   = $newPlanData['recurrence'] ?? ($data['recurrence'] ?? $renewedUser['billing_cycle']);
-            $syncedCycle  = match(strtolower((string)$recurrence)) {
-                'yearly', 'annual'   => 'annual',
-                'monthly'            => 'monthly',
-                default              => $renewedUser['billing_cycle'],
-            };
-            $extensionMonths = ($syncedCycle === 'annual') ? 12 : 1;
-
             $currentExpiry = $renewedUser['plan_expires_at'] ? strtotime($renewedUser['plan_expires_at']) : time();
-            $baseTime  = max($currentExpiry, time());
+            $baseTime = max($currentExpiry, time());
+
+            $cycle = $renewedUser['billing_cycle'];
+            $extensionMonths = ($cycle === 'annual' || $cycle === 'yearly') ? 12 : 1;
             $newExpiry = date('Y-m-d H:i:s', strtotime("+{$extensionMonths} months", $baseTime));
 
-            $pdo->prepare("UPDATE users SET plan_expires_at=?, billing_cycle=?, subscription_cancelled_at=NULL WHERE id=?")
-                ->execute([$newExpiry, $syncedCycle, $renewedUser['id']]);
+            $pdo->prepare("UPDATE users SET plan_expires_at=?, subscription_cancelled_at=NULL WHERE id=?")
+                ->execute([$newExpiry, $renewedUser['id']]);
 
             if ($license_key) {
                 $pdo->prepare("UPDATE licenses SET status='active', expires_at=? WHERE gumroad_license=? OR license_key=?")
@@ -277,16 +240,10 @@ if ($resourceName === 'subscription_updated' && empty($cancelledAt) && empty($en
             $auditLogger->log('subscription_renewed', 'payment', 'success', [
                 'target_type'  => 'user',
                 'target_id'    => $renewedUser['id'],
-                'request_data' => [
-                    'sale_id'      => $sale_id,
-                    'new_expiry'   => $newExpiry,
-                    'plan'         => $renewedUser['plan'],
-                    'billing_cycle'=> $syncedCycle,
-                    'recurrence'   => $recurrence,
-                ]
+                'request_data' => ['sale_id' => $sale_id, 'new_expiry' => $newExpiry, 'plan' => $renewedUser['plan']]
             ]);
 
-            error_log("Gumroad renewal: Extended {$renewEmail} plan to {$newExpiry} [{$syncedCycle}]");
+            error_log("Gumroad renewal: Extended {$renewEmail} plan to {$newExpiry}");
         } else {
             error_log("Gumroad renewal: User not found or no action needed for {$renewEmail}");
         }
@@ -430,7 +387,7 @@ $licenseGen  = new LicenseGenerator($pdo);
 $auditLogger = new AuditLogger($pdo);
 
 try {
-    // Idempotency guard — atomic check + lock inside main transaction to prevent duplicate processing
+    // Idempotency guard — skip duplicate sale
     if ($sale_id) {
         $dupCheck = $pdo->prepare("SELECT id FROM users WHERE gumroad_sale_id = ? LIMIT 1");
         $dupCheck->execute([$sale_id]);
@@ -478,19 +435,6 @@ try {
     $pdo->beginTransaction();
 
     try {
-        // Double-check inside transaction with row lock to prevent race conditions
-        if ($sale_id) {
-            $dupLock = $pdo->prepare("SELECT id FROM users WHERE gumroad_sale_id = ? LIMIT 1 FOR UPDATE");
-            $dupLock->execute([$sale_id]);
-            if ($dupLock->fetch()) {
-                $pdo->rollBack();
-                error_log("Gumroad Ping: Duplicate sale_id {$sale_id} caught inside transaction — skipping");
-                $monitor->end(200);
-                http_response_code(200);
-                exit('ok');
-            }
-        }
-
         if ($u) {
             $userId   = $u['id'];
             $userName = $u['name'];
@@ -509,7 +453,7 @@ try {
             ]);
         } else {
             $isNewUser = true;
-            $pass      = password_hash(bin2hex(random_bytes(16)), PASSWORD_BCRYPT, ['cost' => 12]);
+            $pass      = password_hash(bin2hex(random_bytes(16)), PASSWORD_BCRYPT);
             $pdo->prepare("INSERT INTO users(name, email, password, plan, billing_cycle, plan_expires_at, gumroad_license, gumroad_sale_id, created_at) VALUES(?,?,?,?,?,?,?,?,NOW())")
                 ->execute([$userName, $email, $pass, $plan, $cycle, $expires, $license_key, $sale_id]);
             $userId = (int)$pdo->lastInsertId();
@@ -603,34 +547,16 @@ try {
 
         $setPasswordUrl = APP_URL . '/auth/reset_password.php?token=' . $resetToken . '&email=' . urlencode($email);
 
-        $welcomeResult = $emailSystem->sendFromTemplate('welcome', $email, $userName, [
+        $emailSystem->sendFromTemplate('welcome', $email, $userName, [
             'user_name'        => $userName,
             'plan_name'        => ucfirst($plan) . ' Plan',
             'set_password_url' => $setPasswordUrl,
             'login_url'        => APP_URL . '/auth/login.php'
         ], $userId, 1);
-
-        if (!$welcomeResult) {
-            error_log("Gumroad Ping: Welcome email FAILED for new user {$email} (sale: {$sale_id}) — queued for retry");
-            try {
-                $retryQueue = new WebhookRetryQueue($pdo);
-                $retryQueue->queue('email_welcome', json_encode([
-                    'email'            => $email,
-                    'user_name'        => $userName,
-                    'plan_name'        => ucfirst($plan) . ' Plan',
-                    'set_password_url' => $setPasswordUrl,
-                    'login_url'        => APP_URL . '/auth/login.php',
-                    'user_id'          => $userId,
-                    'sale_id'          => $sale_id,
-                ]), []);
-            } catch (Exception $qEx) {
-                error_log("Gumroad Ping: Failed to queue welcome email retry - " . $qEx->getMessage());
-            }
-        }
     }
 
     // Kirim system license key ke customer
-    $licenseResult = $emailSystem->sendFromTemplate('license_delivery', $email, $userName, [
+    $emailSystem->sendFromTemplate('license_delivery', $email, $userName, [
         'user_name'    => $userName,
         'product_name' => $product_name,
         'license_key'  => $customLicenseKey,
@@ -640,26 +566,7 @@ try {
         'is_new_user'  => $isNewUser
     ], $userId, 3);
 
-    if (!$licenseResult) {
-        error_log("Gumroad Ping: License delivery email FAILED for {$email} (sale: {$sale_id}) — queued for retry");
-        try {
-            $retryQueue = $retryQueue ?? new WebhookRetryQueue($pdo);
-            $retryQueue->queue('email_license', json_encode([
-                'email'        => $email,
-                'user_name'    => $userName,
-                'product_name' => $product_name,
-                'license_key'  => $customLicenseKey,
-                'plan_name'    => ucfirst($plan) . ' Plan',
-                'user_id'      => $userId,
-                'sale_id'      => $sale_id,
-                'is_new_user'  => $isNewUser,
-            ]), []);
-        } catch (Exception $qEx) {
-            error_log("Gumroad Ping: Failed to queue license email retry - " . $qEx->getMessage());
-        }
-    }
-
-    $invoiceResult = $emailSystem->sendFromTemplate('invoice', $email, $userName, [
+    $emailSystem->sendFromTemplate('invoice', $email, $userName, [
         'user_name'     => $userName,
         'order_id'      => $sale_id,
         'plan_name'     => ucfirst($plan) . ' Plan',
@@ -668,25 +575,6 @@ try {
         'billing_cycle' => ucfirst($cycle),
         'invoice_url'   => APP_URL . '/dashboard/billing.php'
     ], $userId, 3, ['sale_id' => $sale_id, 'amount' => $amount, 'gateway' => 'gumroad']);
-
-    if (!$invoiceResult) {
-        error_log("Gumroad Ping: Invoice email FAILED for {$email} (sale: {$sale_id}) — queued for retry");
-        try {
-            $retryQueue = $retryQueue ?? new WebhookRetryQueue($pdo);
-            $retryQueue->queue('email_invoice', json_encode([
-                'email'         => $email,
-                'user_name'     => $userName,
-                'order_id'      => $sale_id,
-                'plan_name'     => ucfirst($plan) . ' Plan',
-                'amount'        => $amount,
-                'billing_cycle' => $cycle,
-                'user_id'       => $userId,
-                'sale_id'       => $sale_id,
-            ]), []);
-        } catch (Exception $qEx) {
-            error_log("Gumroad Ping: Failed to queue invoice email retry - " . $qEx->getMessage());
-        }
-    }
 
     $monitor->end(200);
     http_response_code(200);

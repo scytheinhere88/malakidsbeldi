@@ -4,7 +4,9 @@ startSession();
 requireLogin();
 $user = currentUser();
 if(!$user){ header('Location: /auth/login.php'); exit; }
-if(!hasAddonAccess((int)$user['id'], 'copy-rename')){ header('Location: /dashboard/addons.php?ref=copy-rename'); exit; }
+$plan = $user['plan'] ?? 'free';
+$hasPremium = !in_array($plan, ['free','pro']);
+if(!$hasPremium){ header('Location: /landing/pricing.php?addon=premium'); exit; }
 ?><!DOCTYPE html>
 <html lang="en">
 <head>

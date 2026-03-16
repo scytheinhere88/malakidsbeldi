@@ -14,16 +14,6 @@ require_once dirname(__DIR__).'/includes/SystemMonitor.php';
 header('Content-Type: application/json');
 require_csrf();
 
-$_rlUser  = currentUser();
-$_rlTier  = $_rlUser['plan'] ?? 'free';
-$_rlIp    = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
-$_rlCheck = (new EnhancedRateLimiter(db(), new SystemMonitor(db())))->check($_rlIp, 'api_scraper', $_rlTier, $_rlUser['id'] ?? null);
-if (!$_rlCheck['allowed']) {
-    http_response_code(429);
-    echo json_encode(['ok' => false, 'msg' => 'Rate limit exceeded. Please wait before retrying.']);
-    exit;
-}
-
 // Increase execution time and memory for large batches
 set_time_limit(300); // 5 minutes max per chunk
 ini_set('memory_limit', '512M');
@@ -67,26 +57,16 @@ try {
         exit;
     }
 
-    // Claim a chunk atomically to prevent double-processing when concurrent requests occur
-    $pdo->beginTransaction();
+    // Get pending domains from queue
     $stmt = $pdo->prepare("
         SELECT id, domain
         FROM autopilot_queue
         WHERE job_id = ? AND status = 'pending'
         ORDER BY created_at ASC
         LIMIT ?
-        FOR UPDATE SKIP LOCKED
     ");
     $stmt->execute([$jobId, $chunkSize]);
     $pendingItems = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-    if (!empty($pendingItems)) {
-        $claimIds = array_column($pendingItems, 'id');
-        $placeholders = implode(',', array_fill(0, count($claimIds), '?'));
-        $claimStmt = $pdo->prepare("UPDATE autopilot_queue SET status = 'processing' WHERE id IN ($placeholders) AND status = 'pending'");
-        $claimStmt->execute($claimIds);
-    }
-    $pdo->commit();
 
     if (empty($pendingItems)) {
         // All done! Mark job as completed
@@ -152,6 +132,10 @@ try {
         $domain = strtolower(trim($item['domain']));
 
         try {
+            // Mark as processing
+            $stmt = $pdo->prepare("UPDATE autopilot_queue SET status = 'processing' WHERE id = ?");
+            $stmt->execute([$queueId]);
+
             // Set per-domain timeout
             $startTime = time();
             $timeoutSeconds = 30; // 30s max per domain
@@ -254,10 +238,10 @@ try {
     ]);
 
 } catch (Exception $e) {
-    error_log("Autopilot queue process error: " . $e->getMessage());
     http_response_code(500);
     echo json_encode([
         'ok' => false,
-        'msg' => 'Processing error. Please try again.'
+        'msg' => 'Processing error: ' . $e->getMessage()
     ]);
+    error_log("Autopilot queue process error: " . $e->getMessage());
 }

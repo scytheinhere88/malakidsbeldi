@@ -19,7 +19,7 @@ if (empty($accessToken)) {
 
 $action = $_GET['action'] ?? $_POST['action'] ?? 'list';
 
-$postUrl = rtrim(APP_URL, '/') . '/api/gumroad.php' . (!empty($pingToken) ? '?token=' . urlencode($pingToken) : '');
+$postUrl = rtrim(APP_URL, '/') . '/api/gumroad.php?token=' . urlencode($pingToken);
 
 $resourceNames = ['sale', 'refund', 'dispute', 'dispute_won', 'cancellation', 'subscription_updated', 'subscription_ended', 'subscription_restarted'];
 

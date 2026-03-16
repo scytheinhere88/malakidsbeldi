@@ -26,11 +26,6 @@ if(defined('ADMIN_IP_WHITELIST_ENABLED') && ADMIN_IP_WHITELIST_ENABLED === true)
     }
 }
 
-if (!defined('ADMIN_CONFIGURED') || !ADMIN_CONFIGURED) {
-    http_response_code(503);
-    die('<!DOCTYPE html><html><head><title>Admin Unavailable</title><style>body{font-family:sans-serif;text-align:center;padding:100px;background:#0a0a0a;color:#999;}h1{color:#ff4560;}</style></head><body><h1>Admin Panel Unavailable</h1><p>Admin credentials are not configured. Set ADMIN_USERNAME and ADMIN_PASS_HASH in .env</p></body></html>');
-}
-
 if($_SERVER['REQUEST_METHOD']==='POST'){
     if(!csrf_verify()){
         $err = 'Security validation failed. Please refresh and try again.';
@@ -44,13 +39,11 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
                 'target_type' => 'admin',
                 'target_id' => $u
             ]);
-        } elseif(!empty($u) && !empty($p) && $u===ADMIN_USERNAME && password_verify($p,ADMIN_PASS_HASH)){
+        } elseif($u===ADMIN_USERNAME && password_verify($p,ADMIN_PASS_HASH)){
             $securityManager->clearFailedLoginAttempts('admin_' . $u, $ipAddress);
 
-            session_regenerate_id(true);
             $_SESSION['is_admin'] = true;
             $_SESSION['admin_id'] = 1;
-            $_SESSION['admin_lt'] = time();
             $_SESSION['lt'] = time();
 
             $auditLogger->setAdminId(1);
@@ -93,7 +86,6 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
     </div>
   </div>
   <?php if($err): ?><div class="err-box">⚠ <?= htmlspecialchars($err) ?></div><?php endif; ?>
-  <?php if(($_GET['msg']??'')==='session_expired'): ?><div class="info-box">Session expired due to inactivity. Please log in again.</div><?php endif; ?>
   <form method="POST" autocomplete="off">
     <?= csrf_field() ?>
     <div class="form-field">

@@ -1,5 +1,5 @@
 <?php
-$appEnv = $_ENV['APP_ENV'] ?? getenv('APP_ENV') ?: 'production';
+$appEnv = $_ENV['APP_ENV'] ?? 'production';
 define('APP_ENV', $appEnv);
 define('DEBUG_MODE', $appEnv === 'development');
 
@@ -14,25 +14,14 @@ if (DEBUG_MODE) {
     error_reporting(E_ALL & ~E_DEPRECATED & ~E_STRICT);
 }
 
-function getRequestId(): string {
-    if (class_exists('SecurityHeaders')) {
-        return SecurityHeaders::requestId();
-    }
-    static $id = null;
-    if ($id === null) $id = bin2hex(random_bytes(12));
-    return $id;
-}
-
 set_error_handler(function($errno, $errstr, $errfile, $errline) {
-    $reqId = getRequestId();
-    $message = date('Y-m-d H:i:s') . " | [req:{$reqId}] Error [$errno]: $errstr in $errfile on line $errline\n";
+    $message = date('Y-m-d H:i:s') . " | Error [$errno]: $errstr in $errfile on line $errline\n";
     error_log($message, 3, __DIR__ . '/php_errors.log');
     return false;
 });
 
 set_exception_handler(function($exception) {
-    $reqId = getRequestId();
-    $message = date('Y-m-d H:i:s') . " | [req:{$reqId}] Exception: " . $exception->getMessage() . " in " . $exception->getFile() . " on line " . $exception->getLine() . "\n";
+    $message = date('Y-m-d H:i:s') . " | Exception: " . $exception->getMessage() . " in " . $exception->getFile() . " on line " . $exception->getLine() . "\n";
     $message .= "Stack trace:\n" . $exception->getTraceAsString() . "\n\n";
     error_log($message, 3, __DIR__ . '/php_errors.log');
 

@@ -2,14 +2,11 @@
 session_start();
 set_time_limit(0);
 require_once __DIR__.'/../config.php';
-enforce_payload_limit(MAX_PAYLOAD_ZIP);
 require_once __DIR__.'/../includes/EnhancedRateLimiter.php';
 require_once __DIR__.'/../includes/SystemMonitor.php';
 if(!isLoggedIn()){ http_response_code(401); echo json_encode(['ok'=>false,'msg'=>'Unauthorized']); exit; }
 ini_set('max_execution_time', 0);
 ini_set('memory_limit', '512M');
-ini_set('post_max_size', '256M');
-ini_set('upload_max_filesize', '256M');
 
 // Rate limiting with bypass for legitimate operations
 $monitor = new SystemMonitor($pdo);
@@ -40,18 +37,6 @@ if (!$isCronJob && !$isInternalCall) {
 }
 
 $action = $_GET['action'] ?? $_POST['action'] ?? '';
-
-// CSRF protection for all state-mutating POST actions
-// Exempt read-only actions like 'check' and 'scan_zips' that don't modify files
-$csrfExemptActions = ['check', 'scan_zips'];
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && !in_array($action, $csrfExemptActions, true)) {
-    if (!csrf_verify()) {
-        header('Content-Type: application/json');
-        http_response_code(403);
-        echo json_encode(['ok' => false, 'msg' => 'CSRF validation failed. Please refresh the page.']);
-        exit;
-    }
-}
 
 // ── CHECK ENVIRONMENT ──
 if ($action === 'check') {
@@ -371,17 +356,14 @@ function normPath($p) {
     $p = trim($p);
     if (empty($p)) return '';
 
-    // Decode URL encoding to catch encoded traversal like %2e%2e or %2F
-    $decoded = urldecode($p);
-    if (strpos($decoded, '..') !== false || strpos($p, '..') !== false) {
+    if (strpos($p, '..') !== false) {
         error_log("SECURITY: Path traversal attempt detected: {$p}");
         http_response_code(400);
         sse(['type'=>'error','msg'=>'Invalid path: directory traversal not allowed']);
         exit;
     }
 
-    // Block null bytes and other dangerous characters
-    if (strpos($p, "\0") !== false || preg_match('/[<>"|?*]/', $p)) {
+    if (preg_match('/[<>:"|?*]/', $p)) {
         error_log("SECURITY: Invalid characters in path: {$p}");
         http_response_code(400);
         sse(['type'=>'error','msg'=>'Invalid path: contains forbidden characters']);
@@ -397,44 +379,24 @@ function normPath($p) {
         realpath(__DIR__ . '/..')
     ];
 
-    // For existing paths, enforce realpath boundary check
     $realPath = realpath($p);
-    if ($realPath !== false) {
-        $isAllowed = false;
-        foreach ($allowedBasePaths as $basePath) {
-            if ($basePath && strpos($realPath . DIRECTORY_SEPARATOR, $basePath . DIRECTORY_SEPARATOR) === 0) {
-                $isAllowed = true;
-                break;
-            }
-        }
-
-        if (!$isAllowed) {
-            error_log("SECURITY: Path outside allowed directories: {$realPath}");
-            http_response_code(403);
-            sse(['type'=>'error','msg'=>'Access denied: path outside allowed directories']);
-            exit;
-        }
-
-        return $realPath;
+    if ($realPath === false) {
+        return $p;
     }
 
-    // For non-existing paths (e.g. output dir to be created), verify parent is within allowed dirs
-    $parent = dirname($p);
-    $realParent = realpath($parent);
-    if ($realParent !== false) {
-        $isAllowed = false;
-        foreach ($allowedBasePaths as $basePath) {
-            if ($basePath && strpos($realParent . DIRECTORY_SEPARATOR, $basePath . DIRECTORY_SEPARATOR) === 0) {
-                $isAllowed = true;
-                break;
-            }
+    $isAllowed = false;
+    foreach ($allowedBasePaths as $basePath) {
+        if ($basePath && strpos($realPath, $basePath) === 0) {
+            $isAllowed = true;
+            break;
         }
-        if (!$isAllowed) {
-            error_log("SECURITY: Parent path outside allowed directories: {$realParent}");
-            http_response_code(403);
-            sse(['type'=>'error','msg'=>'Access denied: path outside allowed directories']);
-            exit;
-        }
+    }
+
+    if (!$isAllowed) {
+        error_log("SECURITY: Path outside allowed directories: {$realPath}");
+        http_response_code(403);
+        sse(['type'=>'error','msg'=>'Access denied: path outside allowed directories']);
+        exit;
     }
 
     return $p;

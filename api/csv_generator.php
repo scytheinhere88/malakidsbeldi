@@ -1,7 +1,6 @@
 <?php
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../includes/RateLimitMiddleware.php';
-enforce_payload_limit(MAX_PAYLOAD_CSV);
 
 // ── SSE STREAM (reads job from DB by token — fixes URL length limit) ──────────
 if (isset($_GET['action']) && $_GET['action'] === 'stream_generate') {
