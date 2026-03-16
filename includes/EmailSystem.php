@@ -113,7 +113,7 @@ class EmailSystem {
 
     private function replaceVariables($text, $variables) {
         // Safe URL/path keys that must NOT be HTML-escaped
-        $urlKeys = ['app_url', 'dashboard_url', 'billing_url', 'reset_link', 'reset_url', 'verify_link', 'unsubscribe_url'];
+        $urlKeys = ['app_url', 'dashboard_url', 'billing_url', 'reset_link', 'verify_link', 'unsubscribe_url'];
 
         foreach ($variables as $key => $value) {
             $safeValue = (string)$value;
