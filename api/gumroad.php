@@ -37,42 +37,30 @@ if (!empty($pingTokenHeader)) {
     $pingToken = '';
 }
 
-$hasWebhookSecret = !empty($webhookSecret);
-$hasSignature     = !empty($signature);
-$hasPingConfig    = !empty($configToken);
-$hasPingToken     = !empty($pingToken);
+$isWebhook = !empty($signature) && !empty($webhookSecret);
+$isPing    = !empty($configToken) && !empty($pingToken);
 
-// SECURITY: If webhook secret is configured, ALWAYS require HMAC signature.
-// Do not allow fallback to ping token when HMAC is configured — that would allow
-// an attacker to bypass HMAC by simply omitting the signature header.
-if ($hasWebhookSecret) {
-    if (!$hasSignature) {
-        error_log('Gumroad: HMAC secret is configured but no X-Gumroad-Signature header received.');
-        http_response_code(403);
-        exit('Unauthorized');
-    }
+if (!$isWebhook && !$isPing) {
+    error_log('Gumroad: Missing auth — no signature and no ping token. Configure GUMROAD_PING_TOKEN or GUMROAD_WEBHOOK_SECRET.');
+    http_response_code(403);
+    exit('Unauthorized');
+}
+
+// Validate based on auth method
+if ($isWebhook) {
     $rawBody = file_get_contents('php://input');
     $expected = hash_hmac('sha256', $rawBody, $webhookSecret);
     if (!hash_equals($expected, $signature)) {
-        error_log('Gumroad webhook: Invalid HMAC signature');
+        error_log('Gumroad webhook: Invalid signature');
         http_response_code(403);
         exit('Invalid signature');
     }
-} elseif ($hasPingConfig) {
-    if (!$hasPingToken) {
-        error_log('Gumroad: Ping token configured but no token received in request.');
-        http_response_code(403);
-        exit('Unauthorized');
-    }
+} elseif ($isPing) {
     if (!hash_equals($configToken, $pingToken)) {
         error_log('Gumroad Ping: Invalid token');
         http_response_code(403);
         exit('Invalid token');
     }
-} else {
-    error_log('Gumroad: No auth method configured. Set GUMROAD_WEBHOOK_SECRET (preferred) or GUMROAD_PING_TOKEN in .env');
-    http_response_code(403);
-    exit('Unauthorized');
 }
 
 // ============================================

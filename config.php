@@ -99,16 +99,6 @@ define('FORCE_HTTPS', filter_var($_ENV['FORCE_HTTPS'] ?? 'true', FILTER_VALIDATE
 define('TRUST_PROXY', filter_var($_ENV['TRUST_PROXY'] ?? 'false', FILTER_VALIDATE_BOOLEAN));
 
 // ============================================
-// SECURITY HEADERS — applied to ALL responses (after constants are defined)
-// ============================================
-if (file_exists(__DIR__ . '/includes/SecurityHeaders.php')) {
-    require_once __DIR__ . '/includes/SecurityHeaders.php';
-    if (!headers_sent()) {
-        SecurityHeaders::apply();
-    }
-}
-
-// ============================================
 // PAYMENT GATEWAYS
 // ============================================
 define('GUMROAD_WEBHOOK_SECRET', $_ENV['GUMROAD_WEBHOOK_SECRET'] ?? '');
@@ -291,9 +281,8 @@ function ss(){
     return;
   }
 
-  // SecurityHeaders::apply() is already called at config load time.
-  // Only apply here for session cookie settings which require an active session context.
-  if(class_exists('SecurityHeaders') && !headers_sent()){
+  if(file_exists(__DIR__.'/includes/SecurityHeaders.php')){
+    require_once __DIR__.'/includes/SecurityHeaders.php';
     SecurityHeaders::apply();
   }
 
@@ -496,59 +485,4 @@ function requireCronLock(string $lockName): void {
   register_shutdown_function(function() use ($lockName) {
     releaseCronLock($lockName);
   });
-}
-
-// ============================================
-// ATOMIC PROMO CODE REDEMPTION
-// Uses SELECT ... FOR UPDATE to prevent race conditions when multiple requests
-// try to redeem the same single-use promo code simultaneously.
-// Returns the promo row on success, or null if invalid/exhausted/already used by this user.
-// ============================================
-function redeemPromoCode(string $code, int $userId): ?array {
-  $pdo = db();
-  try {
-    $pdo->beginTransaction();
-
-    $stmt = $pdo->prepare("
-      SELECT * FROM promo_codes
-      WHERE code = ?
-        AND is_active = 1
-        AND valid_from  <= NOW()
-        AND valid_until >= NOW()
-      FOR UPDATE
-    ");
-    $stmt->execute([$code]);
-    $promo = $stmt->fetch();
-
-    if (!$promo) {
-      $pdo->rollBack();
-      return null;
-    }
-
-    if ($promo['max_uses'] !== null && (int)$promo['current_uses'] >= (int)$promo['max_uses']) {
-      $pdo->rollBack();
-      return null;
-    }
-
-    // Check if this user already redeemed this code
-    $check = $pdo->prepare("SELECT id FROM promo_redemptions WHERE promo_code_id = ? AND user_id = ? LIMIT 1");
-    $check->execute([$promo['id'], $userId]);
-    if ($check->fetch()) {
-      $pdo->rollBack();
-      return null;
-    }
-
-    // Record redemption and increment usage counter atomically
-    $pdo->prepare("INSERT INTO promo_redemptions (promo_code_id, user_id, redeemed_at) VALUES (?, ?, NOW())")
-      ->execute([$promo['id'], $userId]);
-    $pdo->prepare("UPDATE promo_codes SET current_uses = current_uses + 1 WHERE id = ?")
-      ->execute([$promo['id']]);
-
-    $pdo->commit();
-    return $promo;
-  } catch (Exception $e) {
-    if ($pdo->inTransaction()) $pdo->rollBack();
-    error_log("redeemPromoCode error: " . $e->getMessage());
-    return null;
-  }
 }

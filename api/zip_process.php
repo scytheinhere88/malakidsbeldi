@@ -38,18 +38,6 @@ if (!$isCronJob && !$isInternalCall) {
 
 $action = $_GET['action'] ?? $_POST['action'] ?? '';
 
-// CSRF protection for all state-mutating POST actions
-// Exempt read-only actions like 'check' and 'scan_zips' that don't modify files
-$csrfExemptActions = ['check', 'scan_zips'];
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && !in_array($action, $csrfExemptActions, true)) {
-    if (!csrf_verify()) {
-        header('Content-Type: application/json');
-        http_response_code(403);
-        echo json_encode(['ok' => false, 'msg' => 'CSRF validation failed. Please refresh the page.']);
-        exit;
-    }
-}
-
 // ── CHECK ENVIRONMENT ──
 if ($action === 'check') {
     header('Content-Type: application/json');

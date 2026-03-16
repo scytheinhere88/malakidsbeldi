@@ -37,35 +37,13 @@ if(isset($_POST['verify_2fa']) && isset($_SESSION['temp_2fa_user'])){
         $tempUserId = $_SESSION['temp_2fa_user'];
     } else {
         $tempUserId = $_SESSION['temp_2fa_user'];
+        $twoFA = new TwoFactorAuth(db(), $tempUserId);
+        $code = trim($_POST['code'] ?? '');
 
-        // Rate limit: 5 attempts per user per 5 minutes (session-based)
-        $twoFaAttempts = $_SESSION['2fa_attempts'] ?? 0;
-        $twoFaWindow   = $_SESSION['2fa_window_start'] ?? 0;
-        $now = time();
-        if($now - $twoFaWindow > 300){
-            $twoFaAttempts = 0;
-            $twoFaWindow   = $now;
-        }
-
-        // IP-based rate limit via EnhancedRateLimiter (5 attempts / 5 min)
-        $ipAddr = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
-        $twoFaRateCheck = $rateLimiter->check($ipAddr, '2fa_verify', 5, 300);
-
-        if($twoFaAttempts >= 5 || !$twoFaRateCheck['allowed']){
-            $err = 'Too many 2FA attempts. Please wait 5 minutes before trying again.';
+        if(empty($code)){
+            $err = 'Please enter a verification code.';
             $showTwoFactorStep = true;
-            // Clear the 2FA session after lockout to force re-login
-            unset($_SESSION['temp_2fa_user'], $_SESSION['2fa_attempts'], $_SESSION['2fa_window_start']);
-            $auditLogger->setUserId($tempUserId);
-            $auditLogger->logAuth('2fa_rate_limited', 'user_id_'.$tempUserId, 'failed', 'Too many 2FA attempts');
-        } else {
-            $twoFA = new TwoFactorAuth(db(), $tempUserId);
-            $code = trim($_POST['code'] ?? '');
-
-            if(empty($code)){
-                $err = 'Please enter a verification code.';
-                $showTwoFactorStep = true;
-            } elseif($twoFA->verifyTOTP($code) || $twoFA->verifyBackupCode($code)){
+        } elseif($twoFA->verifyTOTP($code) || $twoFA->verifyBackupCode($code)){
             $stmt = db()->prepare("SELECT * FROM users WHERE id=?");
             $stmt->execute([$tempUserId]);
             $u = $stmt->fetch();
@@ -75,7 +53,7 @@ if(isset($_POST['verify_2fa']) && isset($_SESSION['temp_2fa_user'])){
                 unset($_SESSION['temp_2fa_user']);
                 $showTwoFactorStep = false;
             } else {
-                unset($_SESSION['temp_2fa_user'], $_SESSION['2fa_attempts'], $_SESSION['2fa_window_start']);
+                unset($_SESSION['temp_2fa_user']);
 
                 $sessionId = $securityManager->createSession($u['id']);
                 $_SESSION['uid'] = (int)$u['id'];
@@ -91,15 +69,11 @@ if(isset($_POST['verify_2fa']) && isset($_SESSION['temp_2fa_user'])){
                 exit;
             }
         } else {
-            // Increment attempt counter on failure
-            $_SESSION['2fa_attempts'] = $twoFaAttempts + 1;
-            $_SESSION['2fa_window_start'] = $twoFaWindow;
             $err = 'Invalid 2FA code. Please try again.';
             $showTwoFactorStep = true;
             $auditLogger->setUserId($tempUserId);
             $auditLogger->logAuth('2fa_failed', 'user_id_'.$tempUserId, 'failed', 'Invalid 2FA code');
         }
-        } // close rate limit else block
     }
 }
 
