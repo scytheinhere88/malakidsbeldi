@@ -183,69 +183,7 @@ class EmailSystem {
             }
         }
 
-        $result = ['sent' => $sent, 'failed' => $failed, 'total' => count($emails)];
-
-        $this->checkAndAlertQueueHealth($result);
-
-        return $result;
-    }
-
-    private function checkAndAlertQueueHealth(array $result): void {
-        try {
-            $failedCountStmt = $this->pdo->query("SELECT COUNT(*) as c FROM email_queue WHERE status = 'failed'");
-            $failedTotal     = (int)($failedCountStmt->fetch(PDO::FETCH_ASSOC)['c'] ?? 0);
-
-            $pendingCountStmt = $this->pdo->query("SELECT COUNT(*) as c FROM email_queue WHERE status = 'pending'");
-            $pendingTotal     = (int)($pendingCountStmt->fetch(PDO::FETCH_ASSOC)['c'] ?? 0);
-
-            if (!file_exists(__DIR__ . '/AdvancedAlertManager.php')) return;
-            require_once __DIR__ . '/AdvancedAlertManager.php';
-            $alertManager = AdvancedAlertManager::getInstance($this->pdo);
-
-            if ($failedTotal >= 20) {
-                $alertManager->createAlert(
-                    'email_queue_failed',
-                    'email',
-                    $failedTotal >= 50 ? 'critical' : 'high',
-                    'Email Queue: High Failure Count',
-                    "There are {$failedTotal} permanently failed emails in the queue that need attention.",
-                    (float)$failedTotal,
-                    20.0,
-                    ['failed_total' => $failedTotal, 'pending_total' => $pendingTotal]
-                );
-            }
-
-            if ($pendingTotal >= 200) {
-                $alertManager->createAlert(
-                    'email_queue_backlog',
-                    'email',
-                    $pendingTotal >= 500 ? 'critical' : 'high',
-                    'Email Queue: Large Backlog',
-                    "Email queue has {$pendingTotal} pending emails — processing may be delayed.",
-                    (float)$pendingTotal,
-                    200.0,
-                    ['pending_total' => $pendingTotal]
-                );
-            }
-
-            if ($result['total'] > 0) {
-                $failureRate = ($result['failed'] / $result['total']) * 100;
-                if ($failureRate >= 50) {
-                    $alertManager->createAlert(
-                        'email_send_failure_rate',
-                        'email',
-                        $failureRate >= 80 ? 'critical' : 'high',
-                        'Email Delivery: High Failure Rate',
-                        "Email send failure rate is {$failureRate}% — check SMTP configuration.",
-                        $failureRate,
-                        50.0,
-                        ['sent' => $result['sent'], 'failed' => $result['failed'], 'total' => $result['total']]
-                    );
-                }
-            }
-        } catch (Exception $e) {
-            error_log("EmailSystem: queue health check alert failed: " . $e->getMessage());
-        }
+        return ['sent' => $sent, 'failed' => $failed, 'total' => count($emails)];
     }
 
     private function sendEmail($email) {

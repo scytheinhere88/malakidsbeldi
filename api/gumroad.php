@@ -6,7 +6,6 @@ require_once dirname(__DIR__).'/includes/Analytics.php';
 require_once dirname(__DIR__).'/includes/LicenseGenerator.php';
 require_once dirname(__DIR__).'/includes/AuditLogger.php';
 require_once dirname(__DIR__).'/includes/WebhookRetryQueue.php';
-require_once dirname(__DIR__).'/includes/AdvancedAlertManager.php';
 
 // ============================================
 // GUMROAD PING / WEBHOOK SECURITY
@@ -707,28 +706,6 @@ try {
 
     $monitor->handleError($e, 'high', $userId ?? null);
     $monitor->end(500, $e->getMessage());
-
-    try {
-        $alertMgr = AdvancedAlertManager::getInstance($pdo);
-        $alertMgr->createAlert(
-            'payment_webhook_failure',
-            'payment',
-            'critical',
-            'Gumroad Webhook: Processing Failed',
-            "Payment webhook failed for sale_id={$sale_id}, email={$email}. Error: " . $e->getMessage(),
-            null,
-            null,
-            [
-                'sale_id'    => $sale_id,
-                'email'      => $email,
-                'product'    => $product_identifier ?? '',
-                'error'      => $e->getMessage(),
-                'queued'     => true,
-            ]
-        );
-    } catch (Exception $alertEx) {
-        error_log("Gumroad: Failed to create payment failure alert: " . $alertEx->getMessage());
-    }
 
     error_log("Gumroad Ping error (queued for retry): " . $e->getMessage());
     http_response_code(500);

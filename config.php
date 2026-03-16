@@ -366,15 +366,10 @@ function ss(){
     session_start();
   }
 
-  $fpData = ($_SERVER['HTTP_USER_AGENT']??'')
-    .'|'.($_SERVER['REMOTE_ADDR']??'')
-    .'|'.($_SERVER['HTTP_ACCEPT_LANGUAGE']??'')
-    .'|'.($_SERVER['HTTP_ACCEPT_ENCODING']??'')
-    .'|'.(defined('APP_SALT')?APP_SALT:'');
   if(empty($_SESSION['_fingerprint'])){
-    $_SESSION['_fingerprint']=hash_hmac('sha256',$fpData,'fp');
+    $_SESSION['_fingerprint']=hash('sha256',($_SERVER['HTTP_USER_AGENT']??'').'|'.($_SERVER['REMOTE_ADDR']??''));
   }else{
-    $current=hash_hmac('sha256',$fpData,'fp');
+    $current=hash('sha256',($_SERVER['HTTP_USER_AGENT']??'').'|'.($_SERVER['REMOTE_ADDR']??''));
     if(!hash_equals($_SESSION['_fingerprint'],$current)){
       session_destroy();
       session_start();

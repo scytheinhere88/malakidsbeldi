@@ -33,8 +33,7 @@ class QueryCache {
                 $data = self::$redis->get("qc:{$key}");
                 if ($data !== false) {
                     self::$hits++;
-                    $decoded = json_decode($data, true);
-                    return ($decoded !== null || $data === 'null') ? $decoded : null;
+                    return unserialize($data);
                 }
             } catch (Exception $e) {
             }
@@ -57,7 +56,7 @@ class QueryCache {
 
         if (self::$redisEnabled && self::$redis) {
             try {
-                self::$redis->setex("qc:{$key}", $ttlSeconds, json_encode($data));
+                self::$redis->setex("qc:{$key}", $ttlSeconds, serialize($data));
             } catch (Exception $e) {
             }
         }

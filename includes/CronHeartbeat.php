@@ -165,10 +165,6 @@ class CronHeartbeat {
                 'error'
             );
         }
-
-        if ($status === 'success') {
-            $this->resolveAlerts($execution['job_name']);
-        }
     }
 
     public function heartbeat(string $jobName): void {
@@ -299,28 +295,17 @@ class CronHeartbeat {
 
         $stmt->execute([$jobName, $alertType, $message, $severity]);
 
-        if (file_exists(__DIR__ . '/AdvancedAlertManager.php')) {
-            require_once __DIR__ . '/AdvancedAlertManager.php';
-            try {
-                $advancedSeverity = match($severity) {
-                    'critical' => AdvancedAlertManager::SEVERITY_CRITICAL,
-                    'error'    => AdvancedAlertManager::SEVERITY_HIGH,
-                    default    => AdvancedAlertManager::SEVERITY_MEDIUM,
-                };
-                $alertManager = AdvancedAlertManager::getInstance($this->db);
-                $alertManager->createAlert(
-                    "cron_{$jobName}_{$alertType}",
-                    'cron',
-                    $advancedSeverity,
-                    "Cron Job Alert: {$jobName}",
-                    $message,
-                    null,
-                    null,
-                    ['job_name' => $jobName, 'alert_type' => $alertType]
-                );
-            } catch (Exception $e) {
-                error_log("CronHeartbeat: failed to create advanced alert: " . $e->getMessage());
-            }
+        if (file_exists(__DIR__ . '/AlertManager.php')) {
+            require_once __DIR__ . '/AlertManager.php';
+            $alertManager = AlertManager::getInstance($this->db);
+            $alertManager->createAlert(
+                "cron_{$alertType}",
+                $severity,
+                "Cron Job Alert: {$jobName} - {$message}",
+                0,
+                0,
+                ['job_name' => $jobName, 'alert_type' => $alertType]
+            );
         }
 
         return (int)$this->db->lastInsertId();

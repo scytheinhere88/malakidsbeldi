@@ -2,39 +2,19 @@
 require_once dirname(__DIR__).'/config.php';
 require_once dirname(__DIR__).'/includes/EmailSystem.php';
 require_once dirname(__DIR__).'/includes/AuditLogger.php';
-require_once dirname(__DIR__).'/includes/RateLimiter.php';
 startSession();
 if(isLoggedIn()){header('Location:'.APP_URL.'/dashboard/');exit;}
 
 $err='';$suc='';
 $auditLogger = new AuditLogger(db());
 if($_SERVER['REQUEST_METHOD']==='POST'){
-  $fpIp = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
-  $fpLimiter = new RateLimiter(db());
-  $fpRateCheck = $fpLimiter->check($fpIp, 'forgot_password', 5, 900);
-  if(!$fpRateCheck['allowed']){
-    $retryMins = ceil(($fpRateCheck['retry_after'] ?? 900) / 60);
-    $err = "Too many requests. Please try again in {$retryMins} minutes.";
-    $auditLogger->log('password_reset_rate_limited', 'auth', 'failed', [
-      'target_type' => 'ip',
-      'target_id'   => $fpIp
-    ]);
-  } elseif(!csrf_verify()){
+  if(!csrf_verify()){
     $err='Security validation failed. Please refresh and try again.';
   } else {
     $email=strtolower(trim($_POST['email']??''));
     if(!$email){$err='Email required.';}
     elseif(!filter_var($email,FILTER_VALIDATE_EMAIL)){$err='Invalid email address.';}
-    elseif(strlen($email)>254){$err='Invalid email address.';}
     else{
-      $emailRateKey = 'forgot_email_' . md5($email);
-      $emailRateCheck = $fpLimiter->check($emailRateKey, 'forgot_password_email', 3, 3600);
-      if(!$emailRateCheck['allowed']){
-        $suc='If that email exists, a password reset link has been sent.';
-        $email='';
-      }
-    }
-    if($email){
       try{
         $stmt=db()->prepare("SELECT id, name, email FROM users WHERE email=?");
         $stmt->execute([$email]);

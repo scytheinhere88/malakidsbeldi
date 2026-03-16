@@ -1,6 +1,5 @@
 <?php
 require_once dirname(__DIR__).'/config.php';
-require_once dirname(__DIR__).'/includes/ApiResponse.php';
 require_once dirname(__DIR__).'/includes/EnhancedRateLimiter.php';
 require_once dirname(__DIR__).'/includes/SystemMonitor.php';
 require_once dirname(__DIR__).'/includes/Analytics.php';
@@ -8,12 +7,18 @@ require_once dirname(__DIR__).'/includes/EmailSystem.php';
 require_once dirname(__DIR__).'/includes/LicenseGenerator.php';
 require_once dirname(__DIR__).'/includes/AuditLogger.php';
 
+header('Content-Type: application/json');
+
 ss();
 if (!isLoggedIn()) {
-    ApiResponse::unauthorized();
+    http_response_code(401);
+    die(json_encode(['success' => false, 'error' => 'Not authenticated']));
 }
 
-ApiResponse::requirePostMethod();
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    http_response_code(405);
+    die(json_encode(['success' => false, 'error' => 'Method not allowed']));
+}
 
 $pdo     = db();
 $monitor = new SystemMonitor($pdo);
@@ -29,14 +34,16 @@ $userTier = in_array($planRow['plan'] ?? 'free', ['free','pro','platinum','lifet
 $rateCheck = $limiter->check($ip, 'license_activation', $userTier, $_SESSION['uid']);
 
 if (!$rateCheck['allowed']) {
-    ApiResponse::rateLimited($rateCheck['retry_after'] ?? 300);
+    http_response_code(429);
+    die(json_encode(['success' => false, 'error' => 'Too many activation attempts. Try again in 5 minutes.']));
 }
 
-$input      = ApiResponse::parseJsonBody(true);
+$input      = json_decode(file_get_contents('php://input'), true);
 $licenseKey = trim($input['license_key'] ?? '');
 
 if (empty($licenseKey)) {
-    ApiResponse::validationError(['license_key' => 'License key is required']);
+    http_response_code(400);
+    die(json_encode(['success' => false, 'error' => 'License key is required']));
 }
 
 try {
@@ -45,7 +52,8 @@ try {
     $user = $userStmt->fetch();
 
     if (!$user) {
-        ApiResponse::notFound('User not found');
+        http_response_code(404);
+        die(json_encode(['success' => false, 'error' => 'User not found']));
     }
 
     $licenseGen  = new LicenseGenerator($pdo);
@@ -56,7 +64,8 @@ try {
     $result = $licenseGen->activateLicense($licenseKey, $user['id'], $user['email']);
 
     if (!$result['success']) {
-        ApiResponse::error($result['error'] ?? 'Activation failed', 400, 'ACTIVATION_FAILED');
+        http_response_code(400);
+        die(json_encode(['success' => false, 'error' => $result['error'] ?? 'Activation failed']));
     }
 
     // Fetch updated user plan
@@ -102,7 +111,8 @@ try {
         'invoice_url'   => APP_URL . '/dashboard/billing.php'
     ], $user['id'], 3);
 
-    ApiResponse::success([
+    echo json_encode([
+        'success'            => true,
         'message'            => $result['message'] ?? 'License activated successfully!',
         'plan'               => $newPlan,
         'cycle'              => $cycle,
@@ -113,5 +123,6 @@ try {
 
 } catch (Exception $e) {
     error_log("License activation error: " . $e->getMessage());
-    ApiResponse::serverError('An unexpected error occurred');
+    http_response_code(500);
+    die(json_encode(['success' => false, 'error' => 'An unexpected error occurred']));
 }

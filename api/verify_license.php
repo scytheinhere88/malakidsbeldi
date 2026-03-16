@@ -1,11 +1,12 @@
 <?php
 require_once __DIR__ . '/../config.php';
-require_once __DIR__ . '/../includes/ApiResponse.php';
 require_once __DIR__ . '/../includes/LicenseGenerator.php';
 require_once __DIR__ . '/../includes/EnhancedRateLimiter.php';
 require_once __DIR__ . '/../includes/SystemMonitor.php';
 
 startSession();
+
+header('Content-Type: application/json');
 
 $pdo = db();
 $monitor = new SystemMonitor($pdo);
@@ -17,17 +18,28 @@ $userId = $_SESSION['uid'] ?? $_SESSION['user_id'] ?? 0;
 $rateCheck = $rateLimiter->check($ip, 'license_verify', 'free', $userId);
 
 if (!$rateCheck['allowed']) {
-    ApiResponse::rateLimited($rateCheck['retry_after'] ?? 60);
+    http_response_code(429);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Too many verification attempts. Please try again later.',
+        'retry_after' => $rateCheck['retry_after'] ?? 60
+    ]);
+    exit;
 }
 
 $method = $_SERVER['REQUEST_METHOD'];
 
 if ($method === 'POST') {
-    $input      = ApiResponse::parseJsonBody(true);
+    $input = json_decode(file_get_contents('php://input'), true);
     $licenseKey = trim($input['license_key'] ?? '');
 
     if (empty($licenseKey)) {
-        ApiResponse::validationError(['license_key' => 'License key is required']);
+        http_response_code(400);
+        echo json_encode([
+            'success' => false,
+            'error' => 'License key is required'
+        ]);
+        exit;
     }
 
     $licenseGen = new LicenseGenerator($pdo);
@@ -36,7 +48,8 @@ if ($method === 'POST') {
         $result = $licenseGen->verifyLicense($licenseKey);
 
         if ($result['valid']) {
-            ApiResponse::success([
+            echo json_encode([
+                'success' => true,
                 'valid'   => true,
                 'license' => [
                     'product_name' => $result['license']['product_name'],
@@ -48,26 +61,45 @@ if ($method === 'POST') {
                 ]
             ]);
         } else {
-            ApiResponse::error($result['error'], 400, 'INVALID_LICENSE', ['valid' => false]);
+            http_response_code(400);
+            echo json_encode([
+                'success' => false,
+                'valid'   => false,
+                'error'   => $result['error']
+            ]);
         }
     } catch (Exception $e) {
         error_log("License verification error: " . $e->getMessage());
-        ApiResponse::serverError('Verification failed');
+        http_response_code(500);
+        echo json_encode([
+            'success' => false,
+            'error' => 'Verification failed'
+        ]);
     }
-
 } elseif ($method === 'PUT') {
     $userId = $_SESSION['uid'] ?? $_SESSION['user_id'] ?? null;
 
     if (!$userId) {
-        ApiResponse::unauthorized();
+        http_response_code(401);
+        echo json_encode([
+            'success' => false,
+            'error' => 'Unauthorized'
+        ]);
+        exit;
     }
 
-    $userEmail  = $_SESSION['email'] ?? '';
-    $input      = ApiResponse::parseJsonBody(true);
+    $userEmail = $_SESSION['email'] ?? '';
+
+    $input = json_decode(file_get_contents('php://input'), true);
     $licenseKey = trim($input['license_key'] ?? '');
 
     if (empty($licenseKey)) {
-        ApiResponse::validationError(['license_key' => 'License key is required']);
+        http_response_code(400);
+        echo json_encode([
+            'success' => false,
+            'error' => 'License key is required'
+        ]);
+        exit;
     }
 
     $licenseGen = new LicenseGenerator($pdo);
@@ -78,42 +110,64 @@ if ($method === 'POST') {
         if ($result['success']) {
             require_once __DIR__ . '/../includes/AuditLogger.php';
             $auditLogger = new AuditLogger($pdo);
-            $auditLogger->setUserId($userId);
-            $auditLogger->log('license_activated', 'license', 'success', [
-                'target_type' => 'license',
-                'request_data' => ['license_key' => $licenseKey, 'product' => $result['product']]
+            $auditLogger->log($userId, 'license_activated', 'license', null, [
+                'license_key' => $licenseKey,
+                'product' => $result['product']
             ]);
 
-            ApiResponse::success([
-                'message'            => $result['message'],
-                'product'            => $result['product'],
-                'system_license_key' => $result['system_license_key'] ?? null,
+            echo json_encode([
+                'success' => true,
+                'message' => $result['message'],
+                'product' => $result['product'],
+                'system_license_key' => $result['system_license_key'] ?? null
             ]);
         } else {
-            ApiResponse::error($result['error'], 400, 'ACTIVATION_FAILED');
+            http_response_code(400);
+            echo json_encode([
+                'success' => false,
+                'error' => $result['error']
+            ]);
         }
     } catch (Exception $e) {
-        error_log("License activation error: " . $e->getMessage());
-        ApiResponse::serverError('Activation failed');
+        error_log("License activation error: " . $e->getMessage() . " in " . $e->getFile() . ":" . $e->getLine());
+        http_response_code(500);
+        echo json_encode([
+            'success' => false,
+            'error' => 'Activation failed: ' . $e->getMessage()
+        ]);
     }
-
 } elseif ($method === 'GET') {
     $userId = $_SESSION['uid'] ?? $_SESSION['user_id'] ?? null;
 
     if (!$userId) {
-        ApiResponse::unauthorized();
+        http_response_code(401);
+        echo json_encode([
+            'success' => false,
+            'error' => 'Unauthorized'
+        ]);
+        exit;
     }
-
     $licenseGen = new LicenseGenerator($pdo);
 
     try {
         $licenses = $licenseGen->getLicensesByUserId($userId);
-        ApiResponse::success(['licenses' => $licenses]);
+
+        echo json_encode([
+            'success' => true,
+            'licenses' => $licenses
+        ]);
     } catch (Exception $e) {
         error_log("License retrieval error: " . $e->getMessage());
-        ApiResponse::serverError('Failed to retrieve licenses');
+        http_response_code(500);
+        echo json_encode([
+            'success' => false,
+            'error' => 'Failed to retrieve licenses'
+        ]);
     }
-
 } else {
-    ApiResponse::error('Method not allowed', 405, 'METHOD_NOT_ALLOWED');
+    http_response_code(405);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Method not allowed'
+    ]);
 }
